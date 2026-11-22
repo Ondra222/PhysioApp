@@ -1,14 +1,17 @@
 import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/OrbitControls.js';
-import { buildBody, LAYER_DEFS } from './body.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { Body, LAYER_DEFS } from './body.js';
 import { detectRegion, REGIONS, SIDES } from './regions.js';
 import { SYMPTOMS, SYMPTOM_ADVICE, selectExercises, redFlags } from './exercises.js';
 
 // ---------------------------------------------------------------------------
 // Stav a ukládání
 // ---------------------------------------------------------------------------
-const STORAGE_KEY = 'physioapp.v1';
+const STORAGE_KEY = 'physioapp.v2';
+const LARGE_SCREEN = window.matchMedia('(min-width: 821px) and (pointer: fine)').matches;
 const state = {
+  hq: LARGE_SCREEN,
   mode: 'explore',
   symptom: 'bolest',
   layers: { skin: true, muscles: true, bones: false, vessels: false, nerves: false },
@@ -23,6 +26,7 @@ function load() {
     if (saved) {
       Object.assign(state.layers, saved.layers || {});
       if (typeof saved.skinOpacity === 'number') state.skinOpacity = saved.skinOpacity;
+      if (typeof saved.hq === 'boolean') state.hq = saved.hq;
       if (Array.isArray(saved.complaints)) state.complaints = saved.complaints;
     }
   } catch { /* úložiště nemusí být dostupné */ }
@@ -30,7 +34,7 @@ function load() {
 function save() {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      layers: state.layers, skinOpacity: state.skinOpacity, complaints: state.complaints,
+      layers: state.layers, skinOpacity: state.skinOpacity, complaints: state.complaints, hq: state.hq,
     }));
   } catch { /* ignorovat */ }
 }
@@ -41,17 +45,25 @@ function save() {
 const $ = (sel) => document.querySelector(sel);
 const viewport = $('#viewport');
 
-const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 viewport.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xe7ecef);
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+scene.environmentIntensity = 0.45;
+
 const camera = new THREE.PerspectiveCamera(35, 1, 0.01, 50);
-camera.position.set(0, 1.05, 3.6);
+camera.position.set(0, 0.95, 3.4);
 
 const controls = new OrbitControls(camera, renderer.domElement);
-controls.target.set(0, 0.92, 0);
+controls.target.set(0, 0.85, 0);
 controls.enableDamping = true;
 controls.dampingFactor = 0.08;
 controls.minDistance = 0.35;
@@ -59,26 +71,64 @@ controls.maxDistance = 6;
 controls.screenSpacePanning = true;
 controls.update();
 
-scene.add(new THREE.HemisphereLight(0xffffff, 0x8a9aa6, 1.5));
-const key = new THREE.DirectionalLight(0xffffff, 1.7);
-key.position.set(2, 3, 3);
-scene.add(key);
-const rim = new THREE.DirectionalLight(0xffffff, 0.9);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x8f9ba4, 0.4));
+const key = new THREE.DirectionalLight(0xfff1e4, 2.4);
+key.position.set(1.4, 3.2, 2.6);
+key.target.position.set(0, 0.85, 0);
+key.shadow.mapSize.set(2048, 2048);
+Object.assign(key.shadow.camera, { left: -0.6, right: 0.6, top: 1.0, bottom: -1.0, near: 1, far: 8 });
+key.shadow.bias = -0.0004;
+key.shadow.normalBias = 0.012;
+key.shadow.radius = 3;
+scene.add(key, key.target);
+const fill = new THREE.DirectionalLight(0xe6eeff, 0.6);
+fill.position.set(-2.5, 1.5, 1.5);
+scene.add(fill);
+const rim = new THREE.DirectionalLight(0xdfeaff, 0.8);
 rim.position.set(-2, 2, -3);
 scene.add(rim);
 
+// Měkký stín pod postavou
+const floorTex = (() => {
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d');
+  const grd = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+  grd.addColorStop(0, 'rgba(40,55,65,0.35)');
+  grd.addColorStop(1, 'rgba(40,55,65,0)');
+  g.fillStyle = grd;
+  g.fillRect(0, 0, 128, 128);
+  return new THREE.CanvasTexture(c);
+})();
 const floor = new THREE.Mesh(
-  new THREE.CircleGeometry(0.55, 64),
-  new THREE.MeshBasicMaterial({ color: 0x9fb0ba, transparent: true, opacity: 0.18 }),
+  new THREE.PlaneGeometry(0.9, 0.9),
+  new THREE.MeshBasicMaterial({ map: floorTex, transparent: true, depthWrite: false }),
 );
 floor.rotation.x = -Math.PI / 2;
+floor.position.y = 0.001;
 scene.add(floor);
 
-const body = buildBody();
+const body = new Body();
 scene.add(body.root);
 
 const markerGroup = new THREE.Group();
 scene.add(markerGroup);
+
+// Vysoká kvalita: vržené stíny (struktury si navzájem stíní, model působí plastičtěji)
+function applyQuality() {
+  renderer.shadowMap.enabled = state.hq;
+  key.castShadow = state.hq;
+  body.root.traverse((o) => {
+    if (o.isMesh) {
+      const translucentSkin = o.userData.layer === 'skin' && state.skinOpacity < 1;
+      o.castShadow = state.hq && !translucentSkin;
+      o.receiveShadow = state.hq;
+    }
+  });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, state.hq ? 2 : 1.5));
+  resize();
+  scene.traverse((o) => { if (o.material) o.material.needsUpdate = true; });
+}
 
 function resize() {
   const w = viewport.clientWidth;
@@ -94,7 +144,12 @@ resize();
 // Vrstvy
 // ---------------------------------------------------------------------------
 function applyLayers() {
-  for (const [k, g] of Object.entries(body.layers)) g.visible = !!state.layers[k];
+  // Neprůhledná kůže zakrývá vše uvnitř – vnitřní vrstvy pak nekreslíme
+  // (šetří výkon a nepřečnívají drobné nepřesnosti modelu skrz kůži).
+  const skinCovers = state.layers.skin && body.loaded.skin && state.skinOpacity >= 0.98;
+  for (const [k, g] of Object.entries(body.layers)) {
+    g.visible = !!state.layers[k] && !!body.loaded[k] && (k === 'skin' || !skinCovers);
+  }
   body.layers.skin.traverse((o) => {
     if (o.isMesh) {
       o.material.opacity = state.skinOpacity;
@@ -110,19 +165,30 @@ function renderLayerList() {
   for (const [k, def] of Object.entries(LAYER_DEFS)) {
     const label = document.createElement('label');
     label.innerHTML = `<input type="checkbox" ${state.layers[k] ? 'checked' : ''}/>
-      <span class="dot" style="background:${def.color}"></span>${def.name}`;
+      <span class="dot" style="background:${def.color}"></span><span class="lname">${def.name}</span>
+      <small class="lstatus" data-layer="${k}"></small>`;
     label.querySelector('input').addEventListener('change', (e) => {
       state.layers[k] = e.target.checked;
+      if (e.target.checked) loadLayer(k);
       applyLayers();
       save();
     });
     list.appendChild(label);
   }
+  const hq = $('#hq-toggle');
+  hq.checked = state.hq;
+  hq.addEventListener('change', () => {
+    state.hq = hq.checked;
+    applyQuality();
+    save();
+  });
   const slider = $('#skin-opacity');
   slider.value = state.skinOpacity;
   slider.addEventListener('input', () => {
+    const wasOpaque = state.skinOpacity >= 1;
     state.skinOpacity = parseFloat(slider.value);
     applyLayers();
+    if (wasOpaque !== (state.skinOpacity >= 1)) applyQuality();
     save();
   });
 }
@@ -131,19 +197,24 @@ function renderLayerList() {
 // Kamera
 // ---------------------------------------------------------------------------
 let tween = null;
+// Přelet kamery po kouli kolem cíle (ne napříč tělem).
 function flyTo(target, camPos, duration = 700) {
+  const from = new THREE.Spherical().setFromVector3(camera.position.clone().sub(controls.target));
+  const to = new THREE.Spherical().setFromVector3(camPos.clone().sub(target));
+  let dTheta = to.theta - from.theta;
+  if (dTheta > Math.PI) dTheta -= 2 * Math.PI;
+  if (dTheta < -Math.PI) dTheta += 2 * Math.PI;
   tween = {
     t0: performance.now(), duration,
-    fromT: controls.target.clone(), toT: target.clone(),
-    fromC: camera.position.clone(), toC: camPos.clone(),
+    fromT: controls.target.clone(), toT: target.clone(), from, to, dTheta,
   };
 }
 const VIEWS = {
-  front: [0, 1.05, 3.6], back: [0, 1.05, -3.6], left: [3.6, 1.05, 0], right: [-3.6, 1.05, 0],
+  front: [0, 0.95, 3.4], back: [0, 0.95, -3.4], left: [3.4, 0.95, 0], right: [-3.4, 0.95, 0],
 };
 document.querySelectorAll('[data-view]').forEach((b) => b.addEventListener('click', () => {
   const v = VIEWS[b.dataset.view];
-  flyTo(new THREE.Vector3(0, 0.92, 0), new THREE.Vector3(...v));
+  flyTo(new THREE.Vector3(0, 0.85, 0), new THREE.Vector3(...v));
 }));
 
 function focusPoint(p) {
@@ -155,7 +226,7 @@ function focusPoint(p) {
     outward.normalize();
     if (dir.dot(outward) < 0) dir.copy(outward).setY(0.15).normalize();
   }
-  flyTo(target, target.clone().addScaledVector(dir, 1.3));
+  flyTo(target, target.clone().addScaledVector(dir, 1.1));
 }
 
 // ---------------------------------------------------------------------------
@@ -171,7 +242,7 @@ function rayFromEvent(e) {
 }
 
 function visiblePickables() {
-  return body.pickables.filter((m) => state.layers[m.userData.layer]);
+  return body.pickables.filter((m) => body.layers[m.userData.layer].visible);
 }
 
 function hitsAt(e) {
@@ -205,9 +276,8 @@ function highlight(mesh) {
 }
 
 function displayName(ud) {
-  const label = ud.label ? ` ${ud.label}` : '';
   const side = ud.side ? ` (${SIDES[ud.side]})` : '';
-  return `${ud.name}${label}${side}`;
+  return `${ud.name}${side}`;
 }
 
 // Kliknutí vs. otáčení
@@ -245,14 +315,16 @@ function handleClick(e) {
 // Tooltip při najetí myší
 const tooltip = $('#tooltip');
 let hoverEvent = null;
+let lastHover = 0;
 renderer.domElement.addEventListener('pointermove', (e) => {
   if (e.pointerType !== 'mouse' || e.buttons) { tooltip.hidden = true; return; }
   hoverEvent = e;
 });
 renderer.domElement.addEventListener('pointerleave', () => { hoverEvent = null; tooltip.hidden = true; });
 
-function updateHover() {
-  if (!hoverEvent) return;
+function updateHover(now) {
+  if (!hoverEvent || now - lastHover < 90) return;
+  lastHover = now;
   const e = hoverEvent;
   hoverEvent = null;
   const mid = markerAt(e);
@@ -305,7 +377,7 @@ function structuresAlong(hits, maxDepth = 0.06) {
     if (h.distance - d0 > maxDepth) break;
     const ud = h.object.userData;
     if (ud.layer === 'skin') continue;
-    const n = displayName({ ...ud, side: null });
+    const n = ud.name;
     if (!names.includes(n)) names.push(n);
     if (names.length >= 4) break;
   }
@@ -394,7 +466,7 @@ function showStructure(ud, point, hits) {
   openInfo(`
     <div class="badge"><span class="dot" style="background:${def.color}"></span>${def.name}</div>
     <h2 class="info-title">${displayName(ud)}</h2>
-    <p class="latin">${ud.latin}</p>
+    ${ud.latin ? `<p class="latin">${ud.latin}</p>` : ''}
     <p class="desc">${ud.desc}</p>
     <p class="kv">Oblast: <b>${REGIONS[region].name}</b></p>
     ${under.length ? `<p class="kv">Pod kůží: <b>${under.join(', ')}</b></p>` : ''}
@@ -519,11 +591,16 @@ function animate(now) {
     const k = Math.min(1, (now - tween.t0) / tween.duration);
     const e = easeInOut(k);
     controls.target.lerpVectors(tween.fromT, tween.toT, e);
-    camera.position.lerpVectors(tween.fromC, tween.toC, e);
+    const sph = new THREE.Spherical(
+      tween.from.radius + (tween.to.radius - tween.from.radius) * e,
+      tween.from.phi + (tween.to.phi - tween.from.phi) * e,
+      tween.from.theta + tween.dTheta * e,
+    );
+    camera.position.setFromSpherical(sph).add(controls.target);
     if (k >= 1) tween = null;
   }
   controls.update();
-  updateHover();
+  updateHover(now);
 
   const pulse = 1 + 0.25 * Math.sin(now / 280);
   for (const m of markerGroup.children) {
@@ -538,14 +615,53 @@ function animate(now) {
 // ---------------------------------------------------------------------------
 // Start
 // ---------------------------------------------------------------------------
-load();
-renderLayerList();
-applyLayers();
-rebuildMarkers();
-renderComplaintList();
-setMode('explore');
-$('#loading').remove();
-requestAnimationFrame(animate);
+// ---------------------------------------------------------------------------
+// Načítání modelu
+// ---------------------------------------------------------------------------
+const loadingEl = $('#loading');
+function setLayerStatus(layer, text) {
+  const el = document.querySelector(`.lstatus[data-layer="${layer}"]`);
+  if (el) el.textContent = text;
+}
+async function loadLayer(layer, onProgress) {
+  if (body.loaded[layer]) return;
+  setLayerStatus(layer, 'načítám…');
+  try {
+    await body.ensureLayer(layer, (p) => {
+      setLayerStatus(layer, `${Math.round(p * 100)} %`);
+      onProgress?.(p);
+    });
+    setLayerStatus(layer, '');
+    applyQuality();
+  } catch (err) {
+    console.error(err);
+    setLayerStatus(layer, 'chyba');
+  }
+  applyLayers();
+}
+
+async function start() {
+  load();
+  renderLayerList();
+  rebuildMarkers();
+  renderComplaintList();
+  setMode('explore');
+  requestAnimationFrame(animate);
+
+  await body.init();
+  applyLayers();
+  // Nejdřív viditelné vrstvy (s ukazatelem průběhu), ostatní se načtou až při zapnutí.
+  const visible = Object.keys(LAYER_DEFS).filter((k) => state.layers[k]);
+  const progress = Object.fromEntries(visible.map((k) => [k, 0]));
+  const update = () => {
+    const p = Object.values(progress).reduce((a, b) => a + b, 0) / Math.max(1, visible.length);
+    loadingEl.textContent = `Načítám anatomický model… ${Math.round(p * 100)} %`;
+  };
+  update();
+  await Promise.all(visible.map((k) => loadLayer(k, (p) => { progress[k] = p; update(); })));
+  loadingEl.remove();
+}
+start();
 
 // Pro ladění a testy
-window.physio = { state, body, camera, controls, scene, renderer };
+window.physio = { state, body, camera, controls, scene, renderer, flyTo, THREE };
