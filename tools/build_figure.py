@@ -43,14 +43,71 @@ def remove_internal(v, f, vox=0.004):
     n = np.cross(b - a, c - a)
     n /= np.linalg.norm(n, axis=1, keepdims=True) + 1e-12
     cen = (a + b + c) / 3
-    keep = np.zeros(len(f), bool)
+    out_pos = np.zeros(len(f), bool)
+    out_neg = np.zeros(len(f), bool)
     for d in (1.5, 2.5):
-        for sgn in (1, -1):
+        for sgn, arr in ((1, out_pos), (-1, out_neg)):
             q = np.floor((cen + sgn * d * vox * n - lo) / vox).astype(int)
             q = np.clip(q, 0, np.array(shape) - 1)
-            keep |= outside[q[:, 0], q[:, 1], q[:, 2]]
-    print('  vnitřních stěn odstraněno', int((~keep).sum()), 'trojúhelníků')
+            arr |= outside[q[:, 0], q[:, 1], q[:, 2]]
+    keep = out_pos | out_neg
+    f = f.copy()
+    flip = out_neg & ~out_pos            # vnější prostor je za trojúhelníkem -> otočit normálu ven
+    f[flip] = f[flip][:, [0, 2, 1]]
+    print('  vnitřních stěn odstraněno', int((~keep).sum()), 'trojúhelníků, otočeno', int(flip.sum()))
     return f[keep]
+
+
+def boundary_loops(f):
+    """Uzavřené smyčky okrajových hran (hrana jen v jednom trojúhelníku), se směrem podle trojúhelníku."""
+    from collections import Counter
+    cnt = Counter()
+    for a, b, c in f:
+        for u, w in ((a, b), (b, c), (c, a)):
+            cnt[(min(u, w), max(u, w))] += 1
+    nxt = {}
+    for a, b, c in f:
+        for u, w in ((a, b), (b, c), (c, a)):
+            if cnt[(min(u, w), max(u, w))] == 1:
+                nxt.setdefault(u, []).append(w)
+    loops, used = [], set()
+    for start in list(nxt):
+        for first in nxt[start]:
+            if (start, first) in used:
+                continue
+            loop, u, w = [start], start, first
+            ok = True
+            while True:
+                used.add((u, w))
+                if w == start:
+                    break
+                loop.append(w)
+                cand = [x for x in nxt.get(w, []) if (w, x) not in used]
+                if not cand or len(loop) > 2000:
+                    ok = False
+                    break
+                u, w = w, cand[0]
+            if ok and len(loop) >= 3:
+                loops.append(loop)
+    return loops
+
+
+def fill_holes(v, f, max_len=400):
+    """Zalepí díry (po odstranění vnitřních stěn v místě dotyku paže a boku) vějířem ze středu smyčky."""
+    loops = boundary_loops(f)
+    v = list(v)
+    new_f = []
+    for loop in loops:
+        if len(loop) > max_len:
+            continue
+        c = np.mean([v[i] for i in loop], axis=0)
+        ci = len(v)
+        v.append(c)
+        for k in range(len(loop)):
+            a, b = loop[k], loop[(k + 1) % len(loop)]
+            new_f.append([b, a, ci])   # opačný směr okrajové hrany = stejná orientace jako soused
+    print('  zalepeno', len(loops), 'děr,', len(new_f), 'nových trojúhelníků')
+    return np.array(v), np.vstack([f, np.array(new_f, dtype=f.dtype)]) if new_f else f
 
 
 def drop_small(v, f, min_tris=300):
@@ -118,7 +175,8 @@ for name, node, err in PARTS:
     if node == 'skin':
         f = remove_internal(v, f)
         f = drop_small(v, f)
-    f = orient(v, f)
+    if node != 'skin':
+        f = orient(v, f)
     used = np.unique(f)
     remap = -np.ones(len(v), dtype=np.int64)
     remap[used] = np.arange(len(used))

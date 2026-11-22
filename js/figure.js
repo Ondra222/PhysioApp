@@ -15,6 +15,7 @@ const D = THREE.MathUtils.degToRad;
 const AX = new THREE.Vector3(1, 0, 0), AY = new THREE.Vector3(0, 1, 0), AZ = new THREE.Vector3(0, 0, 1);
 const qa = (axis, deg) => new THREE.Quaternion().setFromAxisAngle(axis, D(deg));
 const SP = Object.fromEntries(SPINE);
+const CUT_SEAMS = typeof window !== 'undefined' && window.CUT_SEAMS !== undefined ? window.CUT_SEAMS : true;
 const _m1 = new THREE.Matrix4(), _m2 = new THREE.Matrix4(), _t = new THREE.Vector3(), _q = new THREE.Quaternion(), _s = new THREE.Vector3();
 const V = (a) => new THREE.Vector3(a[0], a[1], a[2]);
 const lerp = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
@@ -99,13 +100,27 @@ function vertexWeights(p, defs, index, handNear, nrm) {
   // Paže přiléhá k boku trupu: rozhodne směr normály (vnitřní strana paže míří k ose těla).
   // V zóně dotyku paže a boku rozhoduje nejdřív směr normály: vnitřní plocha paže
   // míří k ose těla, boční stěna trupu od ní. Teprve nejasné plochy podle vzdálenosti.
+  // Paže se v klidové poloze dotýká boku i stehna. Rozhodne, zda je plocha otočená
+  // od osy paže (= povrch paže), nebo k ní (= povrch trupu/stehna, který se paže dotýká).
   let side = null;
-  if (p[1] > 0.95 && p[1] < LM.shoulder_left[1] - 0.04 && ax > 0.1 && ax < 0.21) {
-    const nx = nrm[0] * Math.sign(p[0]);
-    if (nx < -0.25) side = 'arm';
-    else if (nx > 0.25) side = 'trunk';
+  if (p[1] > 0.6 && p[1] < LM.shoulder_left[1] - 0.05 && ax > 0.09) {
+    const sd = p[0] > 0 ? 'left' : 'right';
+    const segs = [[LM[`shoulder_${sd}`], LM[`elbow_${sd}`], 0.046], [LM[`elbow_${sd}`], LM[`wrist_${sd}`], 0.038], [LM[`wrist_${sd}`], LM[`hand_${sd}`], 0.035],
+      ...FINGERS[sd].map((f) => [f.base, f.tip, 0.012]), ...FINGERS[sd].map((f) => [LM[`wrist_${sd}`], f.base, 0.02])];
+    let bestD = Infinity, dot = 0;
+    for (const [a, b, r] of segs) {
+      const sp = segParam(p, a, b);
+      if (sp.dist / r < bestD) {
+        bestD = sp.dist / r;
+        const rv = [p[0] - sp.c[0], p[1] - sp.c[1], p[2] - sp.c[2]];
+        const l = Math.hypot(...rv) || 1;
+        dot = (rv[0] * nrm[0] + rv[1] * nrm[1] + rv[2] * nrm[2]) / l;
+      }
+    }
+    if (bestD < 1.9) side = dot > 0 ? 'arm' : 'trunk';
+    // stehno ani bok nesahají tak daleko do strany – tady je vždy ruka
+    if (ax > 0.19 && p[1] < 1.0) side = 'arm';
   }
-  if (!side) side = armpitSide(p);
   for (const d of defs) {
     if (d.virtual || (d.finger && !handNear)) continue;
     // ruce visí u boků: oddělit je od trupu a stehen podle vzdálenosti od osy těla
@@ -116,7 +131,7 @@ function vertexWeights(p, defs, index, handNear, nrm) {
     const upper = /UpperArm|Scap/.test(d.name);
     if (side === 'arm' && !(arm || upper)) continue;
     if (side === 'trunk' && (arm || upper)) continue;
-    if (!side && p[1] < 1.15 && (((trunk || leg) && ax > split) || (arm && ax < split))) continue;
+    if (!side && !handNear && p[1] < 1.15 && (((trunk || leg) && ax > split) || (arm && ax < split))) continue;
     // stehno začíná u hýžďové rýhy – pánev nesmí zasahovat do stehen
     if (d.name === 'pelvis' && p[1] < LM.hip_left[1] - 0.075 && ax > 0.05) continue;
     const [a, b] = d.axis || [d.head, d.tail];
@@ -191,11 +206,9 @@ function prepareGeometry(parts) {
     off += g.attributes.position.count;
   }
 
-  const pos = geo.attributes.position;
-  const n = pos.count;
-  const skinIndex = new Uint16Array(n * 4);
-  const skinWeight = new Float32Array(n * 4);
-  const base = new Float32Array(n * 3);
+  let pos = geo.attributes.position;
+  let n = pos.count;
+  let base = new Float32Array(n * 3);
   const boneWeights = []; // pro zvýraznění: Map index->váha
   const p = [0, 0, 0];
   const handCenters = ['left', 'right'].map((s) => lerp(LM[`wrist_${s}`], LM[`hand_${s}`], 0.5));
@@ -203,7 +216,8 @@ function prepareGeometry(parts) {
   for (let i = 0; i < n; i++) if (kinds[i] === 1) { const side = pos.getX(i) > 0 ? 'left' : 'right'; eyeFront[side] = Math.max(eyeFront[side], pos.getZ(i)); }
   const c = new THREE.Color();
   geo.computeVertexNormals();
-  const restN = geo.attributes.normal.clone();
+  let restN = geo.attributes.normal.clone();
+  let kindsArr = Array.from(kinds);
   const bestOf = new Array(n);
   const wMaps = new Array(n);
 
@@ -257,21 +271,93 @@ function prepareGeometry(parts) {
   };
   const idx = geo.index.array;
   const keep = [];
+  let cut = 0;
+  const highY0 = (t) => Math.max(pos.getY(idx[t]), pos.getY(idx[t + 1]), pos.getY(idx[t + 2]));
   const groups = bestOf.map(group);
   for (let t = 0; t < idx.length; t += 3) {
     const g0 = groups[idx[t]], g1 = groups[idx[t + 1]], g2 = groups[idx[t + 2]];
-    if (bad(g0, g1) || bad(g1, g2) || bad(g0, g2)) continue;
+    if (CUT_SEAMS && (bad(g0, g1) || bad(g1, g2) || bad(g0, g2))) { cut++; continue; }
     // šev mezi paží a bokem: trojúhelník, jehož vrcholy leží zčásti ve válci paže a zčásti mimo
     const sides = [idx[t], idx[t + 1], idx[t + 2]].map((v) => armpitSide([pos.getX(v), pos.getY(v), pos.getZ(v)]));
-    if (sides.includes('arm') && sides.includes('trunk')) continue;
+    if (CUT_SEAMS && highY0(t) < LM.shoulder_left[1] - 0.13 && sides.includes('arm') && sides.includes('trunk')) { cut++; continue; }
     // paže a trup se pod podpažím nesmí dotýkat (vnitřní strana paže u pasu)
     const tri = [g0, g1, g2];
     const lowY = Math.min(pos.getY(idx[t]), pos.getY(idx[t + 1]), pos.getY(idx[t + 2]));
     const highY = Math.max(pos.getY(idx[t]), pos.getY(idx[t + 1]), pos.getY(idx[t + 2]));
-    if (highY < LM.shoulder_left[1] - 0.085 && tri.some((g) => g.startsWith('ua')) && tri.some((g) => g === 'thoracic' || g === 'low')) continue;
+    if (CUT_SEAMS && highY < LM.shoulder_left[1] - 0.13 && tri.some((g) => g.startsWith('ua')) && tri.some((g) => g === 'thoracic' || g === 'low')) { cut++; continue; }
     keep.push(idx[t], idx[t + 1], idx[t + 2]);
   }
+  if (typeof window !== 'undefined') window.__figureCut = cut;
+
+  // Zalepit díry po řezu mezi paží a trupem (a po odstranění styčných ploch při převodu):
+  // každou okrajovou smyčku zvlášť vějířem ze středu, ale jen když celá leží na jedné části těla,
+  // jinak by vznikla blána mezi paží a bokem.
+  {
+    const sideOf = (g) => (g.startsWith('arm') || g.startsWith('ua') ? `A${g.slice(-1)}` : g.startsWith('leg') ? `L${g.slice(-1)}` : 'T');
+    const ek = (a, b) => (a < b ? a * 65536 + b : b * 65536 + a);
+    const cnt = new Map();
+    for (let t = 0; t < keep.length; t += 3) for (let e = 0; e < 3; e++) { const k = ek(keep[t + e], keep[t + (e + 1) % 3]); cnt.set(k, (cnt.get(k) || 0) + 1); }
+    const nxt = new Map();
+    for (let t = 0; t < keep.length; t += 3) for (let e = 0; e < 3; e++) {
+      const a = keep[t + e], b = keep[t + (e + 1) % 3];
+      if (cnt.get(ek(a, b)) === 1) { if (!nxt.has(a)) nxt.set(a, []); nxt.get(a).push(b); }
+    }
+    const usedE = new Set();
+    const loops = [];
+    for (const [start, list] of nxt) for (const first of list) {
+      if (usedE.has(start * 65536 + first)) continue;
+      const loop = [start];
+      let u = start, w = first, ok = true;
+      for (;;) {
+        usedE.add(u * 65536 + w);
+        if (w === start) break;
+        loop.push(w);
+        const cand = (nxt.get(w) || []).filter((x) => !usedE.has(w * 65536 + x));
+        if (!cand.length || loop.length > 400) { ok = false; break; }
+        u = w; w = cand[0];
+      }
+      if (ok && loop.length >= 3) loops.push(loop);
+    }
+    const extraP = [], extraN = [];
+    for (const loop of loops) {
+      if (loop.some((v) => kinds[v] !== 0)) continue;
+      const s0 = sideOf(groups[loop[0]]);
+      if (!loop.every((v) => sideOf(groups[v]) === s0)) continue;
+      const cpos = [0, 0, 0], cn = [0, 0, 0];
+      const w = new Map();
+      const votes = new Map();
+      for (const v of loop) {
+        cpos[0] += pos.getX(v) / loop.length; cpos[1] += pos.getY(v) / loop.length; cpos[2] += pos.getZ(v) / loop.length;
+        cn[0] += restN.getX(v); cn[1] += restN.getY(v); cn[2] += restN.getZ(v);
+        for (const [k, x] of wMaps[v]) w.set(k, (w.get(k) || 0) + x / loop.length);
+        votes.set(bestOf[v], (votes.get(bestOf[v]) || 0) + 1);
+      }
+      const ci = n + extraP.length;
+      extraP.push(cpos);
+      const ln = Math.hypot(...cn) || 1;
+      extraN.push(cn.map((x) => x / ln));
+      wMaps[ci] = w;
+      bestOf[ci] = [...votes.entries()].sort((a, b) => b[1] - a[1])[0][0];
+      groups[ci] = group(bestOf[ci]);
+      kindsArr[ci] = 0;
+      for (let k = 0; k < loop.length; k++) keep.push(loop[(k + 1) % loop.length], loop[k], ci);
+    }
+    if (extraP.length) {
+      const m = n + extraP.length;
+      const P = new Float32Array(m * 3), N = new Float32Array(m * 3), B = new Float32Array(m * 3);
+      P.set(pos.array.subarray(0, n * 3)); N.set(restN.array.subarray(0, n * 3)); B.set(base);
+      extraP.forEach((q, i) => { P.set(q, (n + i) * 3); N.set(extraN[i], (n + i) * 3); COLORS.skin.toArray(B, (n + i) * 3); });
+      geo.setAttribute('position', new THREE.BufferAttribute(P, 3));
+      restN = new THREE.BufferAttribute(N, 3);
+      base = B;
+      pos = geo.attributes.position;
+      n = m;
+    }
+    if (typeof window !== 'undefined') window.__figureFilled = extraP.length;
+  }
   geo.setIndex(keep);
+  const skinIndex = new Uint16Array(n * 4);
+  const skinWeight = new Float32Array(n * 4);
 
   // Vyhlazení vah po síti (odstraní skoky mezi kostmi a přehyby v kloubech)
   const nbr = Array.from({ length: n }, () => new Set());
@@ -281,7 +367,7 @@ function prepareGeometry(parts) {
   }
   const hipY = LM.hip_left[1], hipZ = LM.hip_left[2];
   const armpit = (i) => { const y = pos.getY(i), a = Math.abs(pos.getX(i)); return y > 1.15 && y < 1.33 && a > 0.11 && a < 0.205 && restN.getY(i) < 0.3; };
-  const frozen = (i) => kinds[i] !== 0 || /Finger|Thumb/.test(bestOf[i]) || (armpit(i) && pos.getY(i) < 1.17)
+  const frozen = (i) => kindsArr[i] !== 0 || /Finger|Thumb/.test(bestOf[i]) || (armpit(i) && pos.getY(i) < 1.17)
     || (/Thigh|pelvis/.test(bestOf[i]) && pos.getZ(i) > hipZ + 0.02 && Math.abs(pos.getY(i) - hipY) < 0.09);
   for (let it = 0; it < 4; it++) {
     const next = new Array(n);
@@ -311,6 +397,23 @@ function prepareGeometry(parts) {
     }
     for (const [i, w] of upd) wMaps[i] = w;
   }
+  // Podpaží: plynulý přechod hrudník → paže podle vzdálenosti od osy těla,
+  // aby se kůže při upažení natahovala jako souvislá plocha.
+  for (let i = 0; i < n; i++) {
+    if (kindsArr[i] !== 0) continue;
+    const y = pos.getY(i), ax = Math.abs(pos.getX(i)), z = pos.getZ(i);
+    const sd = pos.getX(i) > 0 ? 'l' : 'r';
+    const shY = LM.shoulder_left[1];
+    if (y > shY - 0.17 && y < shY - 0.02 && ax > 0.1 && ax < 0.185 && z > -0.08 && z < 0.07) {
+      const g = groups[i];
+      if (!(g === 'thoracic' || g.startsWith('ua'))) continue;
+      const tx = clamp01((ax - 0.115) / 0.06);               // 0 = hrudník, 1 = paže
+      const ty = clamp01((y - (shY - 0.17)) / 0.15);         // výš = víc paže
+      const wa = clamp01(tx * (0.55 + 0.45 * ty));
+      const ua = index[`${sd}UpperArm`], th = index.thoracic, sc = index[`${sd}Scap`];
+      wMaps[i] = new Map([[ua, wa * 0.85], [sc, wa * 0.15], [th, 1 - wa]]);
+    }
+  }
   for (let i = 0; i < n; i++) {
     const sorted = [...wMaps[i].entries()].sort((a, b) => b[1] - a[1]).slice(0, 4);
     const sum = sorted.reduce((sm, e) => sm + e[1], 0) || 1;
@@ -330,7 +433,7 @@ function prepareGeometry(parts) {
     rest[i * 3] = pos.getX(i) + pelvis[0]; rest[i * 3 + 1] = pos.getY(i) + pelvis[1]; rest[i * 3 + 2] = pos.getZ(i) + pelvis[2];
   }
   geo.setAttribute('restPos', new THREE.Float32BufferAttribute(rest, 3));
-  geo.setAttribute('kind', new THREE.Float32BufferAttribute(Float32Array.from(kinds), 1));
+  geo.setAttribute('kind', new THREE.Float32BufferAttribute(Float32Array.from(kindsArr), 1));
   geo.setAttribute('focus', new THREE.Float32BufferAttribute(new Float32Array(n), 1));
   // dýchání: posun přední stěny břicha a hrudníku dopředu (morph)
   const bellyIdx = index.belly;
@@ -354,6 +457,10 @@ function prepareGeometry(parts) {
   for (let t = 0; t < tri.length; t += 3) {
     const a = tri[t], b = tri[t + 1], c3 = tri[t + 2];
     if (top(a) === top(b) && top(b) === top(c3) && Math.min(skinWeight[a * 4], skinWeight[b * 4], skinWeight[c3 * 4]) > 0.6) continue;
+    // podpaží: kůže se má natáhnout jako blána, ne zmizet (jinak vznikne díra)
+    const cy = (rest[a * 3 + 1] + rest[b * 3 + 1] + rest[c3 * 3 + 1]) / 3;
+    const cx = Math.abs(rest[a * 3] + rest[b * 3] + rest[c3 * 3]) / 3;
+    if (cy > LM.shoulder_left[1] - 0.16 && cy < LM.shoulder_left[1] + 0.02 && cx > 0.08 && cx < 0.21) continue;
     const L = (u, v) => Math.hypot(rest[u * 3] - rest[v * 3], rest[u * 3 + 1] - rest[v * 3 + 1], rest[u * 3 + 2] - rest[v * 3 + 2]);
     risky.push(t);
     restLen.push(Math.max(L(a, b), L(b, c3), L(a, c3)));
@@ -599,7 +706,7 @@ export class Figure {
       const t = risky[k];
       const a = P(this.fullIndex[t]), b = P(this.fullIndex[t + 1]), c = P(this.fullIndex[t + 2]);
       const m = Math.max(d(a, b), d(b, c), d(a, c));
-      if (m > Math.max(0.035, restLen[k] * 3)) hidden.add(t);
+      if (m > Math.max(0.025, restLen[k] * 2.2)) hidden.add(t);
     }
     const idx = geo.index.array;
     let w = 0;
