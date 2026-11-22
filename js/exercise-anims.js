@@ -8,7 +8,7 @@
 // focus:  zvýrazněné části těla (cílová oblast)
 
 const ARMS_DOWN = { lShoulder: { abd: 6 }, rShoulder: { abd: 6 }, lElbow: { sup: 90, flex: 8 }, rElbow: { sup: 90, flex: 8 }, lFingers: { mcp: 12, ip: 12 }, rFingers: { mcp: 12, ip: 12 } };
-const HANDS_ON_THIGHS = { lShoulder: { flex: 28, abd: 8 }, rShoulder: { flex: 28, abd: 8 }, lElbow: { flex: 55, sup: 90 }, rElbow: { flex: 55, sup: 90 }, lWrist: { flex: -10 }, rWrist: { flex: -10 } };
+const HANDS_ON_THIGHS = { lShoulder: { flex: 14, abd: 8 }, rShoulder: { flex: 14, abd: 8 }, lElbow: { flex: 62, sup: 90 }, rElbow: { flex: 62, sup: 90 }, lWrist: { flex: -10 }, rWrist: { flex: -10 } };
 const both = (j, v) => ({ [`l${j}`]: v, [`r${j}`]: v });
 
 export const BASES = {
@@ -192,7 +192,7 @@ export const ANIMS = {
     base: 'hook', view: 'side', focus: ['pelvis', 'lThigh', 'rThigh'], anchor: ['lFoot', 'rFoot'],
     keys: [
       { p: {}, h: 0.4 },
-      { p: { root: { rot: [-118, 0, 0] }, ...both('Hip', { flex: 2 }), ...both('Knee', { flex: 88 }), ...both('Ankle', { dorsi: 8 }), ...both('Shoulder', { flex: 22, abd: 8 }), neck: { flex: 28 } }, d: 1.5, h: 1, label: 'výdrž 2 s' },
+      { p: { root: { rot: [-118, 0, 0] }, ...both('Hip', { flex: 2 }), ...both('Knee', { flex: 88 }), ...both('Ankle', { dorsi: 8 }), ...both('Shoulder', { flex: -24, abd: 8 }), neck: { flex: 28 } }, d: 1.5, h: 1, label: 'výdrž 2 s' },
     ],
   },
   'child-pose': {

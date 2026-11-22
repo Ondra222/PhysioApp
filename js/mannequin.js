@@ -256,6 +256,10 @@ export class Mannequin {
     return this.markers[name].getWorldPosition(target);
   }
 
+  bbox() {
+    return new THREE.Box3().setFromObject(this.root, true);
+  }
+
   /** Nejnižší bod figuríny (přes obálky segmentů). */
   minY() {
     let min = Infinity;

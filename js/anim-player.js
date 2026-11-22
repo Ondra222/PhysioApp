@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { Mannequin, emptyPose, mergePose, lerpPose } from './mannequin.js';
+import { Figure, loadFigureData } from './figure.js';
 import { ANIMS, BASES } from './exercise-anims.js';
 
 export function hasAnimation(id) {
@@ -48,8 +49,7 @@ export class ExercisePlayer {
     this.floor.rotation.x = -Math.PI / 2;
     this.scene.add(this.floor);
 
-    this.man = new Mannequin();
-    this.scene.add(this.man.root);
+    this.man = null;            // postava se načte při prvním přehrání
     this.props = new THREE.Group();
     this.scene.add(this.props);
     this.attached = [];
@@ -134,7 +134,7 @@ export class ExercisePlayer {
     this.attached = [];
     this.bands = [];
     const M = (n) => this.man.markerPos(n, new THREE.Vector3());
-    const box = new THREE.Box3().setFromObject(this.man.root);
+    const box = this.man.bbox();
     const fwd = new THREE.Vector3(0, 0, 1).applyQuaternion(this.man.root.quaternion);
     fwd.y = 0;
     if (fwd.lengthSq() < 1e-3) fwd.set(0, 0, 1);
@@ -209,7 +209,7 @@ export class ExercisePlayer {
         }
         case 'wall': {
           const a = p.at === 'back' ? M('back') : M(p.at);
-          const w = add(boxMesh(1.6, 2.1, 0.04, new THREE.MeshPhysicalMaterial({ color: 0xdfe5ea, roughness: 0.9 })));
+          const w = add(boxMesh(0.9, 2.1, 0.04, new THREE.MeshPhysicalMaterial({ color: 0xdfe5ea, roughness: 0.9 })));
           const dir = p.side === 'back' ? -1 : 1;
           w.position.set(a.x, 1.05, a.z + (p.dz ?? 0) + dir * 0.02);
           break;
@@ -315,13 +315,13 @@ export class ExercisePlayer {
     const box = new THREE.Box3();
     for (let t = 0; t < this.duration; t += this.duration / 12) {
       this._applyAt(t);
-      box.union(new THREE.Box3().setFromObject(this.man.root));
+      box.union(this.man.bbox());
     }
     this._applyAt(0);
     if (view === 'hand') {
       box.makeEmpty();
-      box.expandByObject(this.man.joints.lWrist);
-      box.expandByScalar(0.025);
+      const w = this.man.markerPos('lHand');
+      box.setFromCenterAndSize(w, new THREE.Vector3(0.3, 0.3, 0.3));
     }
     const center = box.getCenter(new THREE.Vector3());
     const size = box.getSize(new THREE.Vector3());
@@ -366,13 +366,32 @@ export class ExercisePlayer {
     wrap.append(this.labelEl, btn, hint);
     container.appendChild(wrap);
     this.playing = true;
-    this.load(id);
+    this.labelEl.textContent = 'Načítám postavu…';
     this._resize();
-    this._last = performance.now();
-    this._raf = requestAnimationFrame(this._tick);
+    const token = (this._token = (this._token || 0) + 1);
+    return this._ensureFigure().then(() => {
+      if (token !== this._token || this.container !== container) return;
+      this.load(id);
+      this._last = performance.now();
+      this._raf = requestAnimationFrame(this._tick);
+    });
+  }
+
+  _ensureFigure() {
+    if (!this._figureReady) {
+      this._figureReady = loadFigureData().then((data) => new Figure(data)).catch((err) => {
+        console.warn('Realistickou postavu se nepodařilo načíst, použije se figurína.', err);
+        return new Mannequin();
+      }).then((man) => {
+        this.man = man;
+        this.scene.add(man.root);
+      });
+    }
+    return this._figureReady;
   }
 
   unmount() {
+    this._token = (this._token || 0) + 1;
     if (this._raf) cancelAnimationFrame(this._raf);
     this._raf = null;
     if (this.container) this.container.innerHTML = '';

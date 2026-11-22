@@ -15,7 +15,7 @@ místo, kde cítí bolest, tlak nebo brnění** – aplikace pak nabídne vhodn�
   bloudivý, přídatný) a prstové nervy. Každý nerv má popisek s míšními kořeny.
 - **Dermatomy** – přepínač obarví kůži podle míšních segmentů. U každé potíže aplikace ukáže dermatom a kožní nerv
   daného místa (u brnění jako „možný zdroj“) a tlačítkem nerv zvýrazní na modelu.
-- **Animace cviků** – kloubová 3D figurína předvádí všech 47 cviků včetně pomůcek (židle, stůl, zeď, guma, míček…),
+- **Animace cviků** – realistická 3D postava (kůže z BodyParts3D rozpohybovaná kostrou, sportovní oblečení) předvádí všech 47 cviků včetně pomůcek (židle, stůl, zeď, guma, míček…),
   s popisem fáze („výdrž 5 s“); animaci lze pozastavit a otáčet.
 - **Realistické zobrazení** (Three.js) – fyzikálně založené materiály, osvětlení prostředím, filmové tónování,
   vržené stíny v režimu „Vysoká kvalita“.
@@ -65,7 +65,8 @@ js/main.js          scéna, ovládání, výběr, panely, ukládání
 js/body.js          načítání modelu po vrstvách, materiály, dokreslené cévy
 js/nerves.js        nervová soustava (dráhy, popisky, míšní segmenty)
 js/dermatomes.js    mapa dermatomů a kožních nervů
-js/mannequin.js     kloubová figurína pro animace
+js/figure.js        realistická postava pro animace (kostra, váhy kůže, oblečení)
+js/mannequin.js     záložní kloubová figurína a společné funkce póz
 js/exercise-anims.js klíčové pózy všech cviků
 js/anim-player.js   přehrávač animací v kartě cviku
 js/landmarks.js     orientační body kostry (vygenerované z modelu)
