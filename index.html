@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>PhysioApp – interaktivní 3D anatomie a cvičení</title>
+  <meta name="description" content="Označte na 3D postavě, kde vás bolí, tlačí nebo brní, a získejte vhodná cvičení." />
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='22' r='14' fill='%230e7c66'/><rect x='34' y='40' width='32' height='50' rx='14' fill='%230e7c66'/></svg>" />
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./vendor/three/three.module.js",
+        "three/addons/": "./vendor/three/"
+      }
+    }
+  </script>
+</head>
+<body data-mode="explore">
+  <header class="topbar">
+    <button class="icon-btn only-mobile" id="toggle-panel" aria-label="Vrstvy a nastavení">☰</button>
+    <div class="brand"><span class="logo">●</span> PhysioApp</div>
+
+    <div class="segmented" role="tablist" aria-label="Režim">
+      <button data-mode="explore" class="active" role="tab">🔍 <span>Prohlížet</span></button>
+      <button data-mode="mark" role="tab">📍 <span>Označit potíž</span></button>
+    </div>
+
+    <div class="symptoms" id="symptom-picker" aria-label="Typ potíže">
+      <button data-symptom="bolest" class="chip active"><i style="background:#e5484d"></i>Bolest</button>
+      <button data-symptom="tlak" class="chip"><i style="background:#f5a524"></i>Tlak</button>
+      <button data-symptom="brneni" class="chip"><i style="background:#8e4ec6"></i>Brnění</button>
+    </div>
+  </header>
+
+  <aside class="panel left" id="side-panel">
+    <section>
+      <h3>Vrstvy</h3>
+      <div id="layer-list" class="layer-list"></div>
+      <label class="slider-row">
+        <span>Průhlednost kůže</span>
+        <input type="range" id="skin-opacity" min="0.05" max="1" step="0.05" value="0.3" />
+      </label>
+    </section>
+
+    <section>
+      <h3>Pohled</h3>
+      <div class="view-grid">
+        <button data-view="front">Zepředu</button>
+        <button data-view="back">Zezadu</button>
+        <button data-view="left">Zleva</button>
+        <button data-view="right">Zprava</button>
+      </div>
+    </section>
+
+    <section>
+      <h3>Moje potíže</h3>
+      <ul id="complaint-list" class="complaint-list"></ul>
+      <p class="muted small" id="no-complaints">Zatím žádné. Přepněte na „Označit potíž“ a klepněte na postavu.</p>
+    </section>
+  </aside>
+
+  <main id="viewport" aria-label="3D model těla">
+    <div id="hint" class="hint"></div>
+    <div id="tooltip" class="tooltip" hidden></div>
+    <div id="loading" class="loading">Načítám model…</div>
+  </main>
+
+  <aside class="panel right" id="info-panel" hidden>
+    <button class="icon-btn close" id="close-info" aria-label="Zavřít">✕</button>
+    <div id="info-content"></div>
+  </aside>
+
+  <footer class="disclaimer">
+    PhysioApp slouží pouze pro informaci a nenahrazuje vyšetření lékařem ani fyzioterapeutem.
+  </footer>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
