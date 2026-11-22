@@ -397,6 +397,23 @@ function prepareGeometry(parts) {
     }
     for (const [i, w] of upd) wMaps[i] = w;
   }
+  // Podpaží: plynulý přechod hrudník → paže podle vzdálenosti od osy těla,
+  // aby se kůže při upažení natahovala jako souvislá plocha.
+  for (let i = 0; i < n; i++) {
+    if (kindsArr[i] !== 0) continue;
+    const y = pos.getY(i), ax = Math.abs(pos.getX(i)), z = pos.getZ(i);
+    const sd = pos.getX(i) > 0 ? 'l' : 'r';
+    const shY = LM.shoulder_left[1];
+    if (y > shY - 0.17 && y < shY - 0.02 && ax > 0.1 && ax < 0.185 && z > -0.08 && z < 0.07) {
+      const g = groups[i];
+      if (!(g === 'thoracic' || g.startsWith('ua'))) continue;
+      const tx = clamp01((ax - 0.115) / 0.06);               // 0 = hrudník, 1 = paže
+      const ty = clamp01((y - (shY - 0.17)) / 0.15);         // výš = víc paže
+      const wa = clamp01(tx * (0.55 + 0.45 * ty));
+      const ua = index[`${sd}UpperArm`], th = index.thoracic, sc = index[`${sd}Scap`];
+      wMaps[i] = new Map([[ua, wa * 0.85], [sc, wa * 0.15], [th, 1 - wa]]);
+    }
+  }
   for (let i = 0; i < n; i++) {
     const sorted = [...wMaps[i].entries()].sort((a, b) => b[1] - a[1]).slice(0, 4);
     const sum = sorted.reduce((sm, e) => sm + e[1], 0) || 1;
