@@ -315,8 +315,8 @@ export const ANIMS = {
   'mini-squat': {
     base: 'stand', view: 'side', focus: ['lThigh', 'rThigh'], props: [{ type: 'chairBack', at: 'lHand' }],
     keys: [
-      { p: { lShoulder: { flex: 30, abd: 15 }, lElbow: { flex: 20, sup: 180 }, rShoulder: { flex: 30, abd: 15 }, rElbow: { flex: 20, sup: 180 } }, h: 0.4 },
-      { p: { lShoulder: { flex: 35, abd: 15 }, lElbow: { flex: 25, sup: 180 }, rShoulder: { flex: 35, abd: 15 }, rElbow: { flex: 25, sup: 180 }, ...both('Hip', { flex: 50 }), ...both('Knee', { flex: 62 }), ...both('Ankle', { dorsi: 18 }), lumbar: { flex: 18 }, thoracic: { flex: 4 } }, d: 1.6, h: 0.4 },
+      { p: { lShoulder: { flex: 48, abd: 12 }, lElbow: { flex: 20, sup: 180 }, rShoulder: { flex: 48, abd: 12 }, rElbow: { flex: 20, sup: 180 } }, h: 0.4 },
+      { p: { lShoulder: { flex: 80, abd: 12 }, lElbow: { flex: 5, sup: 180 }, rShoulder: { flex: 80, abd: 12 }, rElbow: { flex: 5, sup: 180 }, ...both('Hip', { flex: 50 }), ...both('Knee', { flex: 62 }), ...both('Ankle', { dorsi: 18 }), lumbar: { flex: 18 }, thoracic: { flex: 4 } }, d: 1.6, h: 0.4 },
     ],
   },
   'step-up': {
@@ -377,6 +377,67 @@ export const ANIMS = {
     keys: [
       { p: {}, h: 0.4 },
       { p: { lHip: { flex: 35 }, lKnee: { flex: 70 }, rKnee: { flex: 8 }, ...both('Shoulder', { abd: 25 }) }, d: 1, h: 2.2, label: 'výdrž 30 s' },
+    ],
+  },
+
+  // ---------------- Overball ----------------
+  'ob-chin-nod': {
+    base: 'hook', view: 'side', focus: ['neck'], props: [{ type: 'overball', at: 'headBack', dir: [0, -1, 0], squash: 0.45 }],
+    keys: [{ p: { neck: { flex: -6 } }, h: 0.4 }, { p: { head: { flex: 14 }, neck: { flex: 2 } }, d: 1, h: 1.2, label: 'výdrž 3 s' }],
+  },
+  'ob-thoracic': {
+    base: 'hook', view: 'side', focus: ['chest'], props: [{ type: 'overball', at: 'back', dir: [0, -1, 0], squash: 0.5 }],
+    keys: [
+      { p: { ...both('Shoulder', { flex: 150, abd: 50 }), ...both('Elbow', { flex: 140, sup: 90 }), thoracic: { flex: 12 }, neck: { flex: 15 } }, h: 0.4 },
+      { p: { ...both('Shoulder', { flex: 150, abd: 50 }), ...both('Elbow', { flex: 140, sup: 90 }), thoracic: { flex: -20 }, neck: { flex: -4 } }, d: 2, h: 0.8, label: 'výdech – záklon přes míč' },
+    ],
+  },
+  'ob-palm-press': {
+    base: 'sit', view: 'three', focus: ['chest', 'lShoulder', 'rShoulder'], props: [{ type: 'overball', between: ['lHand', 'rHand'], r: 0.12 }],
+    keys: [
+      { p: { ...both('Shoulder', { flex: 38, hadd: 8 }), ...both('Elbow', { flex: 78, sup: 90 }), ...both('Wrist', { flex: -25 }), ...both('Fingers', { mcp: 10, ip: 10 }) }, h: 0.5 },
+      { p: { ...both('Shoulder', { flex: 38, hadd: 10.5 }), ...both('Elbow', { flex: 78, sup: 90 }), ...both('Wrist', { flex: -25 }), ...both('Fingers', { mcp: 10, ip: 10 }) }, d: 0.8, h: 1.6, label: 'stisk 5 s' },
+    ],
+  },
+  'ob-wall-circles': {
+    base: 'stand', view: 'side', focus: ['lShoulder', 'lUpperArm'], props: [{ type: 'overball', at: 'lHand', dir: [0, 0, 1], squash: 0.85, wall: true }],
+    keys: [
+      { p: { lShoulder: { flex: 84 }, lElbow: { flex: 5, sup: 0 }, lWrist: { flex: -60 } }, h: 0 },
+      { p: { lShoulder: { flex: 88, abd: 6 }, lElbow: { flex: 5, sup: 0 }, lWrist: { flex: -60 } }, d: 0.6, h: 0 },
+      { p: { lShoulder: { flex: 93 }, lElbow: { flex: 5, sup: 0 }, lWrist: { flex: -60 } }, d: 0.6, h: 0 },
+      { p: { lShoulder: { flex: 88, abd: -5 }, lElbow: { flex: 5, sup: 0 }, lWrist: { flex: -60 } }, d: 0.6, h: 0 },
+    ],
+  },
+  'ob-pelvic-tilt': {
+    base: 'hook', view: 'side', focus: ['pelvis', 'abdomen'], props: [{ type: 'overball', at: 'sacrum', dir: [0, -1, 0], squash: 0.45 }],
+    keys: [{ p: { lumbar: { flex: -8 } }, h: 0.3 }, { p: { lumbar: { flex: 10 }, root: { rot: [-97, 0, 0] } }, d: 1.3, h: 0.5, label: 'podsadit pánev' }],
+  },
+  'ob-knee-squeeze': {
+    base: 'hook', view: 'front', focus: ['lThigh', 'rThigh', 'pelvis'], props: [{ type: 'overball', between: ['lKneeIn', 'rKneeIn'] }],
+    keys: [
+      { p: { ...both('Hip', { flex: 50, abd: 14 }) }, h: 0.4 },
+      { p: { ...both('Hip', { flex: 50, abd: 8 }) }, d: 0.8, h: 1.6, label: 'stisk 5 s' },
+    ],
+  },
+  'ob-bridge': {
+    base: 'hook', view: 'side', focus: ['pelvis', 'lThigh', 'rThigh'], anchor: ['lFoot', 'rFoot'], props: [{ type: 'overball', between: ['lKneeIn', 'rKneeIn'] }],
+    keys: [
+      { p: { ...both('Hip', { flex: 50, abd: 9 }) }, h: 0.4 },
+      { p: { root: { rot: [-118, 0, 0] }, ...both('Hip', { flex: 2, abd: 9 }), ...both('Knee', { flex: 88 }), ...both('Ankle', { dorsi: 8 }), ...both('Shoulder', { flex: -24, abd: 8 }), neck: { flex: 28 } }, d: 1.5, h: 1, label: 'výdrž 2 s' },
+    ],
+  },
+  'ob-wall-squat': {
+    base: 'stand', view: 'side', focus: ['lThigh', 'rThigh'], anchor: ['lFoot', 'rFoot'], props: [{ type: 'overball', at: 'lowBack', dir: [0, 0, -1], squash: 0.8, wall: true }],
+    keys: [
+      { p: { ...both('Hip', { flex: 10 }), ...both('Knee', { flex: 10 }) }, h: 0.4 },
+      { p: { ...both('Hip', { flex: 72 }), ...both('Knee', { flex: 80 }), ...both('Ankle', { dorsi: 12 }), lumbar: { flex: -2 }, ...both('Shoulder', { flex: 20 }) }, d: 1.8, h: 0.6 },
+    ],
+  },
+  'ob-crunch': {
+    base: 'hook', view: 'side', focus: ['abdomen'], props: [{ type: 'overball', at: 'lowBack', dir: [0, -1, 0], squash: 0.45 }],
+    keys: [
+      { p: { ...both('Shoulder', { flex: 8, abd: 8 }), ...both('Elbow', { flex: 5, sup: 90 }) }, h: 0.4 },
+      { p: { thoracic: { flex: 28 }, lumbar: { flex: 6 }, neck: { flex: 20 }, ...both('Shoulder', { flex: 62, abd: 8 }), ...both('Elbow', { flex: 5, sup: 90 }) }, d: 1.2, h: 0.5, label: 'výdech nahoru' },
     ],
   },
 };

@@ -7,6 +7,8 @@ import { SYMPTOMS, SYMPTOM_ADVICE, selectExercises, redFlags } from './exercises
 import { dermatomeAt, dermatomeColor } from './dermatomes.js';
 import { NERVE_INFO, segmentInfo } from './nerves.js';
 import { ExercisePlayer, hasAnimation } from './anim-player.js';
+import { EXERCISES } from './exercises.js';
+import { buildPlan, buildPlanAI, CATEGORY_NAMES, minutesOf } from './planner.js';
 
 // ---------------------------------------------------------------------------
 // Stav a ukládání
@@ -16,6 +18,9 @@ const LARGE_SCREEN = window.matchMedia('(min-width: 821px) and (pointer: fine)')
 const state = {
   hq: LARGE_SCREEN,
   derm: false,
+  equipment: ['overball'],
+  plan: null,
+  planOpts: { minutes: 15, days: 5, ai: false },
   mode: 'explore',
   symptom: 'bolest',
   layers: { skin: true, muscles: true, bones: false, vessels: false, nerves: false },
@@ -31,6 +36,9 @@ function load() {
       Object.assign(state.layers, saved.layers || {});
       if (typeof saved.skinOpacity === 'number') state.skinOpacity = saved.skinOpacity;
       if (typeof saved.hq === 'boolean') state.hq = saved.hq;
+      if (Array.isArray(saved.equipment)) state.equipment = saved.equipment;
+      if (saved.plan) state.plan = saved.plan;
+      if (saved.planOpts) Object.assign(state.planOpts, saved.planOpts);
       if (Array.isArray(saved.complaints)) state.complaints = saved.complaints;
     }
   } catch { /* úložiště nemusí být dostupné */ }
@@ -39,6 +47,7 @@ function save() {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({
       layers: state.layers, skinOpacity: state.skinOpacity, complaints: state.complaints, hq: state.hq,
+      equipment: state.equipment, plan: state.plan, planOpts: state.planOpts,
     }));
   } catch { /* ignorovat */ }
 }
@@ -527,6 +536,9 @@ function renderComplaintList() {
   const ul = $('#complaint-list');
   ul.innerHTML = '';
   $('#no-complaints').hidden = state.complaints.length > 0;
+  $('#plan-actions').hidden = state.complaints.length === 0 && !state.plan;
+  $('#open-plan').hidden = !state.plan;
+  $('#make-plan').disabled = state.complaints.length === 0;
   for (const c of state.complaints) {
     const li = document.createElement('li');
     if (c.id === state.activeComplaint) li.classList.add('active');
@@ -592,8 +604,8 @@ function showStructure(ud, point, hits) {
 function exerciseCard(ex, open = false) {
   const anim = hasAnimation(ex.id);
   return `<details class="exercise" data-ex="${ex.id}" ${open ? 'open' : ''}>
-    <summary><span><span class="t">${anim ? '<span class="play-ico">▶</span>' : ''}${ex.name}</span>${ex.gentle ? '<span class="tag-gentle">šetrné</span>' : ''}
-      <span class="d">${ex.dose}</span></span></summary>
+    <summary><span><span class="t">${anim ? '<span class="play-ico">▶</span>' : ''}${ex.name.replace(/^Overball: /, '')}</span>${ex.gentle ? '<span class="tag-gentle">šetrné</span>' : ''}${ex.equipment === 'overball' ? '<span class="tag-ob">overball</span>' : ''}
+      <span class="d">${ex.dose}</span>${ex.why ? `<span class="why">${ex.why}</span>` : ''}</span></summary>
     ${anim ? '<div class="anim-slot"></div>' : ''}
     <ol>${ex.steps.map((s) => `<li>${s}</li>`).join('')}</ol>
     ${ex.caution ? `<p class="caution">⚠️ ${ex.caution}</p>` : ''}
@@ -624,6 +636,129 @@ function bindExerciseCards() {
   if (first) mountCard(first);
 }
 
+// ---------------------------------------------------------------------------
+// Cvičební plán
+// ---------------------------------------------------------------------------
+const AI_KEY = 'physioapp.aiKey';
+const getKey = () => { try { return localStorage.getItem(AI_KEY) || ''; } catch { return ''; } };
+const setKey = (k) => { try { if (k) localStorage.setItem(AI_KEY, k); else localStorage.removeItem(AI_KEY); } catch { /* */ } };
+
+function planSetupHtml(error = '') {
+  const o = state.planOpts;
+  const chips = (name, values, cur, fmt) => values.map((v) => `<button class="chip ${v === cur ? 'active' : ''}" data-${name}="${v}">${fmt(v)}</button>`).join('');
+  return `
+    <div class="badge">📋 Cvičební plán</div>
+    <h2 class="info-title">Sestavit plán na míru</h2>
+    <p class="desc small">Plán se sestaví z kombinace všech označených potíží (${state.complaints.length}) – vybere cviky, které pomáhají na víc potíží zároveň, vyváží rozhýbání, posílení a protažení a rozvrhne je do týdne.</p>
+    <p class="kv">Čas na jedno cvičení</p>
+    <div class="symptom-switch">${chips('min', [10, 15, 20, 30], o.minutes, (v) => `${v} min`)}</div>
+    <p class="kv">Kolikrát týdně</p>
+    <div class="symptom-switch">${chips('days', [3, 4, 5, 6, 7], o.days, (v) => `${v}×`)}</div>
+    <label class="check-row"><input type="checkbox" id="plan-ob" ${state.equipment.includes('overball') ? 'checked' : ''}/><span>Mám overball<small>zařadí i cviky s měkkým míčem</small></span></label>
+    <label class="check-row"><input type="checkbox" id="plan-ai" ${o.ai ? 'checked' : ''}/><span>Sestavit pomocí AI (Claude)<small>vyžaduje vlastní API klíč Anthropic</small></span></label>
+    <div id="ai-box" class="ai-box" ${o.ai ? '' : 'hidden'}>
+      <input type="password" id="ai-key" placeholder="sk-ant-…" value="${getKey().replace(/"/g, '')}" autocomplete="off" />
+      <p class="small muted">Klíč se uloží jen v tomto prohlížeči. Do AI se odešle jen seznam potíží (oblast, typ, intenzita) a nabídka cviků – nic dalšího. AI vybírá výhradně z cviků aplikace; když selže, použije se místní plánovač.</p>
+    </div>
+    ${error ? `<div class="warn">${error}</div>` : ''}
+    <button class="btn" id="plan-go">✨ Sestavit plán</button>
+    ${state.plan ? '<button class="btn ghost-plain" id="plan-show">Zobrazit uložený plán</button>' : ''}
+  `;
+}
+
+function openPlanSetup(error = '') {
+  state.activeComplaint = null;
+  highlight(null);
+  renderComplaintList();
+  openInfo(planSetupHtml(error));
+  infoContent.querySelectorAll('[data-min]').forEach((b) => b.addEventListener('click', () => { state.planOpts.minutes = +b.dataset.min; openPlanSetup(); }));
+  infoContent.querySelectorAll('[data-days]').forEach((b) => b.addEventListener('click', () => { state.planOpts.days = +b.dataset.days; openPlanSetup(); }));
+  $('#plan-ob').addEventListener('change', (e) => {
+    state.equipment = e.target.checked ? ['overball'] : [];
+    save();
+  });
+  $('#plan-ai').addEventListener('change', (e) => { state.planOpts.ai = e.target.checked; $('#ai-box').hidden = !e.target.checked; save(); });
+  $('#plan-show')?.addEventListener('click', () => renderPlan(state.plan));
+  $('#plan-go').addEventListener('click', async () => {
+    const opts = { minutes: state.planOpts.minutes, days: state.planOpts.days, equipment: state.equipment };
+    let plan = null;
+    let note = '';
+    if (state.planOpts.ai) {
+      const key = $('#ai-key').value.trim();
+      setKey(key);
+      if (!key) { openPlanSetup('Pro AI zadejte API klíč, nebo AI vypněte.'); return; }
+      const btn = $('#plan-go');
+      btn.disabled = true;
+      btn.textContent = '⏳ AI sestavuje plán…';
+      try {
+        plan = await buildPlanAI(state.complaints, opts, key);
+      } catch (err) {
+        console.warn(err);
+        note = `AI se nepodařilo použít (${err.message || err}). Plán sestavil místní plánovač.`;
+      }
+    }
+    if (!plan) plan = buildPlan(state.complaints, opts);
+    if (!plan) return;
+    plan.note = note;
+    state.plan = plan;
+    save();
+    renderComplaintList();
+    renderPlan(plan);
+  });
+}
+
+function planItemCard(it, open) {
+  const ex = EXERCISES.find((e) => e.id === it.id);
+  return exerciseCard({ ...ex, dose: it.dose, why: it.why }, open);
+}
+
+function renderPlan(plan, tab = 'A') {
+  state.activeComplaint = null;
+  renderComplaintList();
+  const sess = plan.sessions[tab];
+  const groups = [];
+  for (const it of sess.items) {
+    const last = groups[groups.length - 1];
+    if (last && last.cat === it.category) last.items.push(it);
+    else groups.push({ cat: it.category, items: [it] });
+  }
+  const mins = Math.round(sess.items.reduce((s, it) => s + minutesOf(it.id), 0));
+  let first = true;
+  openInfo(`
+    <div class="badge">📋 Cvičební plán ${plan.source === 'ai' ? '<span class="tag-ai">AI</span>' : ''}</div>
+    <h2 class="info-title">${plan.title}</h2>
+    <p class="desc">${plan.summary}</p>
+    ${plan.note ? `<div class="warn">${plan.note}</div>` : ''}
+    <p class="kv">Zahrnuté potíže: <b>${plan.complaints.map((c) => `${c.label} (${c.intensity}/10)`).join(', ')}</b></p>
+    <div class="week">${plan.schedule.map((d) => `<div class="day ${d.session ? 'on' : ''}"><b>${d.day}</b><span>${d.session || '–'}</span></div>`).join('')}</div>
+    <div class="tabs">
+      ${['A', 'B'].map((k) => `<button class="tab ${k === tab ? 'active' : ''}" data-tab="${k}">${plan.sessions[k].name}</button>`).join('')}
+    </div>
+    <p class="small muted">${sess.items.length} cviků · cca ${mins} min · pořadí: rozhýbání → posílení → protažení → uvolnění</p>
+    ${groups.map((g) => `<h4 class="grp">${CATEGORY_NAMES[g.cat]}</h4>${g.items.map((it) => { const h = planItemCard(it, first); first = false; return h; }).join('')}`).join('')}
+    <h3 class="small muted">POSTUP V ČASE</h3>
+    <ol class="prog">${plan.progression.map((p) => `<li><b>${p.weeks}:</b> ${p.text}</li>`).join('')}</ol>
+    <div class="advice">${plan.tips.map((t) => `<p>• ${t}</p>`).join('')}</div>
+    <details class="flags"><summary>⚠️ Kdy přestat cvičit a jít k lékaři</summary><ul>${plan.flags.map((f) => `<li>${f}</li>`).join('')}</ul></details>
+    <div class="plan-btns">
+      <button class="btn" id="plan-redo">🔄 Sestavit znovu</button>
+      <button class="btn ghost-plain" id="plan-print">🖨️ Vytisknout</button>
+    </div>
+    <p class="muted small">Plán je orientační a nenahrazuje vyšetření. Uloženo ${new Date(plan.created).toLocaleDateString('cs-CZ')}.</p>
+  `);
+  infoContent.querySelectorAll('[data-tab]').forEach((b) => b.addEventListener('click', () => renderPlan(plan, b.dataset.tab)));
+  $('#plan-redo').addEventListener('click', () => openPlanSetup());
+  $('#plan-print').addEventListener('click', () => {
+    infoContent.querySelectorAll('details.exercise').forEach((d) => { d.open = true; });
+    player?.unmount();
+    window.print();
+  });
+  bindExerciseCards();
+}
+
+$('#make-plan').addEventListener('click', () => { document.body.classList.remove('panel-open'); openPlanSetup(); });
+$('#open-plan').addEventListener('click', () => { document.body.classList.remove('panel-open'); if (state.plan) renderPlan(state.plan); });
+
 function openComplaint(id) {
   const c = state.complaints.find((x) => x.id === id);
   if (!c) return;
@@ -635,7 +770,7 @@ function openComplaint(id) {
 
 function renderComplaint(c) {
   const sym = SYMPTOMS[c.symptom];
-  const list = selectExercises(c.region, c.symptom, c.intensity);
+  const list = selectExercises(c.region, c.symptom, c.intensity, { equipment: state.equipment });
   const strong = c.intensity >= 7;
   const flags = redFlags(c.region);
 

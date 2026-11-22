@@ -83,7 +83,7 @@ const clamp01 = (x) => Math.max(0, Math.min(1, x));
 
 /** Leží vrchol uvnitř válce paže (pod podpažím)? Vrací 'arm', 'trunk' nebo null. */
 function armpitSide(p) {
-  if (p[1] < 0.98 || p[1] > 1.3) return null;
+  if (p[1] < 0.98 || p[1] > LM.shoulder_left[1] - 0.085) return null;
   const sd = p[0] > 0 ? 'left' : 'right';
   const sh = LM[`shoulder_${sd}`], el = LM[`elbow_${sd}`];
   const sp = segParam(p, sh, el);
@@ -97,12 +97,15 @@ function vertexWeights(p, defs, index, handNear, nrm) {
   let best = null;
   const ax = Math.abs(p[0]);
   // Paže přiléhá k boku trupu: rozhodne směr normály (vnitřní strana paže míří k ose těla).
-  let side = armpitSide(p);
-  if (!side && p[1] > 0.95 && p[1] < 1.33 && ax > 0.11 && ax < 0.205) {
+  // V zóně dotyku paže a boku rozhoduje nejdřív směr normály: vnitřní plocha paže
+  // míří k ose těla, boční stěna trupu od ní. Teprve nejasné plochy podle vzdálenosti.
+  let side = null;
+  if (p[1] > 0.95 && p[1] < LM.shoulder_left[1] - 0.04 && ax > 0.1 && ax < 0.21) {
     const nx = nrm[0] * Math.sign(p[0]);
-    if (nx < -0.15) side = 'arm';
-    else if (nx > 0.15 && ax < 0.185) side = 'trunk';
+    if (nx < -0.25) side = 'arm';
+    else if (nx > 0.25) side = 'trunk';
   }
+  if (!side) side = armpitSide(p);
   for (const d of defs) {
     if (d.virtual || (d.finger && !handNear)) continue;
     // ruce visí u boků: oddělit je od trupu a stehen podle vzdálenosti od osy těla
@@ -264,7 +267,8 @@ function prepareGeometry(parts) {
     // paže a trup se pod podpažím nesmí dotýkat (vnitřní strana paže u pasu)
     const tri = [g0, g1, g2];
     const lowY = Math.min(pos.getY(idx[t]), pos.getY(idx[t + 1]), pos.getY(idx[t + 2]));
-    if (lowY < 1.3 && tri.some((g) => g.startsWith('ua')) && tri.some((g) => g === 'thoracic' || g === 'low')) continue;
+    const highY = Math.max(pos.getY(idx[t]), pos.getY(idx[t + 1]), pos.getY(idx[t + 2]));
+    if (highY < LM.shoulder_left[1] - 0.085 && tri.some((g) => g.startsWith('ua')) && tri.some((g) => g === 'thoracic' || g === 'low')) continue;
     keep.push(idx[t], idx[t + 1], idx[t + 2]);
   }
   geo.setIndex(keep);
@@ -277,7 +281,7 @@ function prepareGeometry(parts) {
   }
   const hipY = LM.hip_left[1], hipZ = LM.hip_left[2];
   const armpit = (i) => { const y = pos.getY(i), a = Math.abs(pos.getX(i)); return y > 1.15 && y < 1.33 && a > 0.11 && a < 0.205 && restN.getY(i) < 0.3; };
-  const frozen = (i) => kinds[i] !== 0 || /Finger|Thumb/.test(bestOf[i]) || armpit(i)
+  const frozen = (i) => kinds[i] !== 0 || /Finger|Thumb/.test(bestOf[i]) || (armpit(i) && pos.getY(i) < 1.17)
     || (/Thigh|pelvis/.test(bestOf[i]) && pos.getZ(i) > hipZ + 0.02 && Math.abs(pos.getY(i) - hipY) < 0.09);
   for (let it = 0; it < 4; it++) {
     const next = new Array(n);
@@ -293,10 +297,10 @@ function prepareGeometry(parts) {
   }
   // ramena: delší vyhlazení, aby se kůže při upažení plynule natahovala
   const shoulders = ['left', 'right'].map((sd) => LM[`shoulder_${sd}`]);
-  const nearShoulder = (i) => pos.getY(i) > shoulders[0][1] - 0.03 && shoulders.some((sh) => Math.hypot(pos.getX(i) - sh[0], pos.getY(i) - sh[1], pos.getZ(i) - sh[2]) < 0.11);
+  const nearShoulder = (i) => pos.getY(i) > shoulders[0][1] - 0.09 && shoulders.some((sh) => Math.hypot(pos.getX(i) - sh[0], pos.getY(i) - sh[1], pos.getZ(i) - sh[2]) < 0.12);
   const sh = [];
-  for (let i = 0; i < n; i++) if (!frozen(i) && nearShoulder(i)) sh.push(i);
-  for (let it = 0; it < 10; it++) {
+  for (let i = 0; i < n; i++) if (!frozen(i) && (nearShoulder(i) || (armpit(i) && pos.getY(i) >= 1.17))) sh.push(i);
+  for (let it = 0; it < 16; it++) {
     const upd = new Map();
     for (const i of sh) {
       const acc = new Map();
@@ -393,7 +397,7 @@ export class Figure {
     });
     this.dqR = this.bones.map(() => new THREE.Vector4(0, 0, 0, 1));
     this.dqD = this.bones.map(() => new THREE.Vector4(0, 0, 0, 0));
-    const mat = new THREE.MeshPhysicalMaterial({ vertexColors: true, roughness: 0.62, sheen: 0.4, sheenRoughness: 0.6, clearcoat: 0.05 });
+    const mat = new THREE.MeshPhysicalMaterial({ vertexColors: true, roughness: 0.62, sheen: 0.4, sheenRoughness: 0.6, clearcoat: 0.05, side: THREE.DoubleSide });
     mat.onBeforeCompile = (sh) => {
       sh.uniforms.cShirt = { value: COLORS.shirt };
       sh.uniforms.cShorts = { value: COLORS.shorts };
@@ -477,6 +481,7 @@ export class Figure {
     mark('pelvis', 'pelvis', [0, LM.ischial_left[1] + 0.03, 0.0]);
     mark('sacrum', 'pelvis', [0, SP.S[1], SP.S[2] - 0.05]);
     mark('back', 'thoracic', [0, 1.22, -0.115]);
+    mark('lowBack', 'lumbar', [0, 0.99, -0.1]);
     mark('scapulaL', 'thoracic', [0.075, 1.25, -0.112]);
     mark('head', 'head', LM.head_top);
     mark('headBack', 'head', [0, LM.occipital_protuberance[1], LM.occipital_protuberance[2] - 0.012]);
@@ -487,6 +492,7 @@ export class Figure {
       mark(`${p}Hand`, `${p}Hand`, [L('palm')[0], L('palm')[1], L('palm')[2] + 0.012]);
       mark(`${p}Fingertips`, `${p}Finger2b`, FINGERS[side][2].tip);
       mark(`${p}Knee`, `${p}Shin`, [L('knee')[0], L('knee')[1], L('knee')[2] + 0.05]);
+      mark(`${p}KneeIn`, `${p}Shin`, [L('knee')[0] - 0.048 * Math.sign(L('knee')[0]), L('knee')[1] + 0.02, L('knee')[2]]);
       mark(`${p}Foot`, `${p}Foot`, [L('ankle')[0], 0.0, lerp(L('heel'), L('toe'), 0.45)[2]]);
       mark(`${p}Heel`, `${p}Foot`, [L('heel')[0], 0.0, L('heel')[2] - 0.01]);
       mark(`${p}Toe`, `${p}Foot`, [L('toe')[0], 0.0, L('toe')[2]]);
@@ -593,7 +599,7 @@ export class Figure {
       const t = risky[k];
       const a = P(this.fullIndex[t]), b = P(this.fullIndex[t + 1]), c = P(this.fullIndex[t + 2]);
       const m = Math.max(d(a, b), d(b, c), d(a, c));
-      if (m > Math.max(0.03, restLen[k] * 2.3)) hidden.add(t);
+      if (m > Math.max(0.035, restLen[k] * 3)) hidden.add(t);
     }
     const idx = geo.index.array;
     let w = 0;

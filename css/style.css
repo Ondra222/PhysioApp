@@ -170,8 +170,15 @@ details.flags ul { margin: 8px 0 0; padding-left: 18px; line-height: 1.5; }
 .anim-canvas { display: block; width: 100%; }
 .anim-label { position: absolute; left: 10px; top: 8px; font-size: 13px; font-weight: 600; color: var(--text); background: rgba(255,255,255,.85); border-radius: 999px; padding: 3px 10px; pointer-events: none; }
 .anim-label:empty { display: none; }
-.anim-btn { position: absolute; right: 8px; bottom: 8px; width: 34px; height: 34px; border-radius: 50%; border: 0; background: rgba(28,42,51,.75); color: #fff; font-size: 12px; }
-.anim-hint { position: absolute; left: 10px; bottom: 8px; font-size: 11px; color: var(--muted); pointer-events: none; }
+.anim-hint { position: absolute; right: 10px; top: 10px; font-size: 11px; color: var(--muted); pointer-events: none; }
+.anim-reps { position: absolute; left: 10px; top: 38px; font-size: 12px; color: var(--accent); font-weight: 600; pointer-events: none; }
+.anim-reps:empty { display: none; }
+.anim-bar { display: flex; align-items: center; gap: 6px; padding: 6px 8px; background: #fff; border-top: 1px solid var(--line); }
+.anim-ctl { border: 0; background: #eef2f4; border-radius: 8px; min-width: 32px; height: 30px; font-size: 13px; font-weight: 600; color: var(--text); }
+.anim-ctl:hover { background: #e1e8ec; }
+.anim-track { position: relative; flex: 1; height: 8px; background: #e3e9ed; border-radius: 4px; cursor: pointer; touch-action: none; }
+.anim-fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--accent); border-radius: 4px; pointer-events: none; }
+.anim-tick { position: absolute; top: -3px; bottom: -3px; background: rgba(14,124,102,.18); border-radius: 3px; pointer-events: none; }
 .tag-gentle { font-size: 11px; color: var(--accent); background: var(--accent-soft); padding: 2px 6px; border-radius: 6px; margin-left: 6px; font-weight: 600; }
 
 .only-mobile { display: none; }
@@ -202,4 +209,32 @@ details.flags ul { margin: 8px 0 0; padding-left: 18px; line-height: 1.5; }
 }
 @media (max-width: 420px) {
   .segmented button span { display: none; }
+}
+
+/* ---------- Cvičební plán a štítky ---------- */
+.tag-ob { font-size: 11px; color: #6b3fa0; background: #f1e8fb; padding: 2px 6px; border-radius: 6px; margin-left: 6px; font-weight: 600; }
+.tag-ai { font-size: 11px; color: #fff; background: #6b3fa0; padding: 2px 7px; border-radius: 6px; margin-left: 6px; }
+.exercise summary .why { display: block; font-size: 12px; color: var(--accent); margin-top: 3px; font-weight: 400; }
+.plan-actions { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.plan-actions .btn { margin-top: 0; width: 100%; }
+.btn:disabled { opacity: .5; cursor: default; }
+.btn.ghost-plain { background: #fff; color: var(--text); border: 1px solid var(--line); }
+.plan-btns { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.ai-box { margin: 8px 0 4px; }
+.ai-box input { width: 100%; padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; font: inherit; }
+.week { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin: 10px 0; }
+.week .day { text-align: center; border: 1px solid var(--line); border-radius: 8px; padding: 4px 0; font-size: 12px; color: var(--muted); background: #fff; }
+.week .day b { display: block; color: var(--text); }
+.week .day.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 700; }
+.tabs { display: flex; gap: 6px; margin: 10px 0 4px; }
+.tab { flex: 1; border: 1px solid var(--line); background: #fff; border-radius: 10px; padding: 8px; font-size: 13px; font-weight: 600; }
+.tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+h4.grp { margin: 14px 0 4px; font-size: 13px; color: var(--text); }
+ol.prog { padding-left: 18px; font-size: 14px; line-height: 1.5; }
+.advice p { margin: 2px 0; }
+
+@media print {
+  .topbar, .panel.left, #viewport, .disclaimer, .close, .plan-btns, .anim-slot { display: none !important; }
+  html, body { overflow: visible; height: auto; background: #fff; }
+  .panel.right { position: static; width: auto; max-height: none; box-shadow: none; overflow: visible; }
 }

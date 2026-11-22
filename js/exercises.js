@@ -492,6 +492,97 @@ export const EXERCISES = [
       'Ztížení: zavřete oči nebo stůjte na polštáři.',
     ],
   },
+  // ---------- Overball (měkký míč o průměru cca 25 cm) ----------
+  {
+    id: 'ob-chin-nod', name: 'Overball: kývání hlavou s míčem pod týlem', equipment: 'overball',
+    regions: ['krk', 'hlava'], symptoms: ['bolest', 'tlak', 'brneni'], gentle: true,
+    dose: '10× výdrž 3 s, 2× denně',
+    steps: [
+      'Lehněte na záda s pokrčenými koleny, pod týl si dejte mírně podfouknutý overball.',
+      'Jemně kývněte bradou k hrudníku („ano“) a lehce zatlačte týlem do míče.',
+      'Vydržte 3 s a povolte. Ramena a čelist zůstávají uvolněné.',
+    ],
+  },
+  {
+    id: 'ob-thoracic', name: 'Overball: rozvíjení hrudní páteře přes míč', equipment: 'overball',
+    regions: ['horni_zada', 'hrudnik', 'krk'], symptoms: ['bolest', 'tlak'], gentle: true,
+    dose: '8–10 opakování, míč posuňte o kousek výš a zopakujte',
+    steps: [
+      'Lehněte na záda s pokrčenými koleny, overball si podložte pod lopatky.',
+      'Ruce zkřížené na hrudníku nebo dlaně za hlavou, lokty vpřed.',
+      'S výdechem se pomalu zakloňte přes míč, s nádechem se vraťte. Bedra zůstávají na zemi.',
+    ],
+  },
+  {
+    id: 'ob-palm-press', name: 'Overball: stlačování míče dlaněmi', equipment: 'overball',
+    regions: ['rameno', 'hrudnik', 'loket', 'zapesti'], symptoms: ['bolest'], gentle: true,
+    dose: '10× výdrž 5 s',
+    steps: [
+      'Seďte zpříma, overball držte před hrudníkem mezi dlaněmi, lokty mírně od těla.',
+      'Stlačte míč dlaněmi asi na 30–50 % síly, lopatky držte dole.',
+      'Vydržte 5 s, plynule dýchejte a povolte.',
+    ],
+  },
+  {
+    id: 'ob-wall-circles', name: 'Overball: kroužení míčem o zeď', equipment: 'overball',
+    regions: ['rameno'], symptoms: ['bolest'],
+    dose: '2× 10 kroužků každým směrem',
+    steps: [
+      'Postavte se čelem ke zdi, nataženou rukou přitlačte overball ke zdi ve výši ramene.',
+      'Malými kroužky (velikost dlaně) koulejte míčem po zdi, rameno drží dole.',
+      'Kružte oběma směry. Cvičení má být bez bolesti.',
+    ],
+  },
+  {
+    id: 'ob-pelvic-tilt', name: 'Overball: pánevní náklon s míčem pod křížovou kostí', equipment: 'overball',
+    regions: ['bedra', 'kycel', 'bricho'], symptoms: ['bolest', 'tlak'], gentle: true,
+    dose: '10–15 pomalých opakování',
+    steps: [
+      'Lehněte na záda s pokrčenými koleny a overball si podložte pod křížovou kost.',
+      'Pomalu kolébejte pánví – podsadit (bedra k míči) a lehce prohnout.',
+      'Pohyb je malý a příjemný, dýchejte do břicha.',
+    ],
+  },
+  {
+    id: 'ob-knee-squeeze', name: 'Overball: stlačení míče mezi koleny', equipment: 'overball',
+    regions: ['kycel', 'bedra', 'koleno', 'bricho'], symptoms: ['bolest'], gentle: true,
+    dose: '10× výdrž 5 s',
+    steps: [
+      'Lehněte na záda s pokrčenými koleny, overball vložte mezi kolena.',
+      'S výdechem stlačte míč koleny a jemně zpevněte břicho a pánevní dno.',
+      'Vydržte 5 s a s nádechem povolte.',
+    ],
+  },
+  {
+    id: 'ob-bridge', name: 'Overball: most s míčem mezi koleny', equipment: 'overball',
+    regions: ['bedra', 'kycel', 'koleno'], symptoms: ['bolest'],
+    dose: '3× 10 opakování',
+    steps: [
+      'Lehněte na záda, kolena pokrčená, overball mezi koleny.',
+      'Stlačte míč a zvedněte pánev, až tělo tvoří přímku od ramen ke kolenům.',
+      'Nahoře vydržte 2 s a pomalu se spusťte. Míč nesmí vypadnout.',
+    ],
+  },
+  {
+    id: 'ob-wall-squat', name: 'Overball: dřep u zdi s míčem za zády', equipment: 'overball',
+    regions: ['koleno', 'kycel'], symptoms: ['bolest'],
+    dose: '2× 10 opakování',
+    steps: [
+      'Overball opřete o zeď a zády se o něj opřete ve výši beder, chodidla kousek před tělem.',
+      'Pomalu se spusťte do podřepu (kolena max. do 60–90°), míč se kutálí po zdi.',
+      'Kolena míří nad špičky. Vraťte se nahoru.',
+    ],
+  },
+  {
+    id: 'ob-crunch', name: 'Overball: zkrácený sed s míčem pod bedry', equipment: 'overball',
+    regions: ['bricho', 'bedra'], symptoms: ['bolest'],
+    dose: '2× 10 opakování',
+    steps: [
+      'Lehněte na záda s pokrčenými koleny, overball pod bedry.',
+      'S výdechem zvedněte hlavu a lopatky, ruce se natahují ke kolenům.',
+      'Bedra zůstávají opřená o míč. Pomalu se vraťte.',
+    ],
+  },
 ];
 
 export const SYMPTOM_ADVICE = {
@@ -529,10 +620,12 @@ export function redFlags(region) {
  * Vybere cvičení pro oblast a typ potíže.
  * Při intenzitě 7 a více vrací jen šetrná cvičení.
  */
-export function selectExercises(region, symptom, intensity = 5) {
+export function selectExercises(region, symptom, intensity = 5, opts = {}) {
   const strong = intensity >= 7;
+  const equip = opts.equipment;   // undefined = všechno vybavení
   const list = EXERCISES.filter(
-    (e) => e.regions.includes(region) && e.symptoms.includes(symptom) && (!strong || e.gentle),
+    (e) => e.regions.includes(region) && e.symptoms.includes(symptom) && (!strong || e.gentle)
+      && (!e.equipment || !equip || equip.includes(e.equipment)),
   );
   // Primární oblast cviku (první v seznamu) a šetrné cviky dopředu.
   return list.sort((a, b) => {
