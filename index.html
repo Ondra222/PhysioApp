@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>PhysioApp – interaktivní 3D anatomie a cvičení</title>
   <meta name="description" content="Označte na 3D postavě, kde vás bolí, tlačí nebo brní, a získejte vhodná cvičení." />
-  <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/style.css?v=6" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='22' r='14' fill='%230e7c66'/><rect x='34' y='40' width='32' height='50' rx='14' fill='%230e7c66'/></svg>" />
   <script type="importmap">
     {
@@ -25,6 +25,8 @@
       <button data-mode="explore" class="active" role="tab">🔍 <span>Prohlížet</span></button>
       <button data-mode="mark" role="tab">📍 <span>Označit potíž</span></button>
     </div>
+
+    <button class="plan-top" id="plan-top" type="button">📋 <span class="long">Cvičební plán</span><span class="short">Plán</span></button>
 
     <div class="symptoms" id="symptom-picker" aria-label="Typ potíže">
       <button data-symptom="bolest" class="chip active"><i style="background:#e5484d"></i>Bolest</button>
@@ -65,7 +67,7 @@
       <h3>Moje potíže</h3>
       <ul id="complaint-list" class="complaint-list"></ul>
       <p class="muted small" id="no-complaints">Zatím žádné. Přepněte na „Označit potíž“ a klepněte na postavu.</p>
-      <div class="plan-actions" id="plan-actions" hidden>
+      <div class="plan-actions" id="plan-actions">
         <button class="btn" id="make-plan">📋 Sestavit cvičební plán</button>
         <button class="btn ghost-plain" id="open-plan" hidden>Můj plán</button>
       </div>
@@ -95,6 +97,6 @@
     · 3D data: BodyParts3D, © DBCLS, CC BY-SA 2.1 JP
   </footer>
 
-  <script type="module" src="js/main.js"></script>
+  <script type="module" src="js/main.js?v=6"></script>
 </body>
 </html>

@@ -536,9 +536,7 @@ function renderComplaintList() {
   const ul = $('#complaint-list');
   ul.innerHTML = '';
   $('#no-complaints').hidden = state.complaints.length > 0;
-  $('#plan-actions').hidden = state.complaints.length === 0 && !state.plan;
   $('#open-plan').hidden = !state.plan;
-  $('#make-plan').disabled = state.complaints.length === 0;
   for (const c of state.complaints) {
     const li = document.createElement('li');
     if (c.id === state.activeComplaint) li.classList.add('active');
@@ -670,6 +668,19 @@ function openPlanSetup(error = '') {
   state.activeComplaint = null;
   highlight(null);
   renderComplaintList();
+  if (!state.complaints.length) {
+    openInfo(`
+      <div class="badge">📋 Cvičební plán</div>
+      <h2 class="info-title">Nejdřív označte potíže</h2>
+      <p class="desc">Plán se sestavuje z kombinace vašich potíží. Přepněte na <b>📍 Označit potíž</b>, vyberte bolest, tlak nebo brnění
+        a klepněte na postavu – můžete označit i víc míst. Pak se sem vraťte tlačítkem <b>📋 Cvičební plán</b>.</p>
+      <button class="btn" id="plan-start-mark">📍 Označit potíž</button>
+      ${state.plan ? '<button class="btn ghost-plain" id="plan-show">Zobrazit uložený plán</button>' : ''}
+    `);
+    $('#plan-start-mark').addEventListener('click', () => { closeInfo(); setMode('mark'); });
+    $('#plan-show')?.addEventListener('click', () => renderPlan(state.plan));
+    return;
+  }
   openInfo(planSetupHtml(error));
   infoContent.querySelectorAll('[data-min]').forEach((b) => b.addEventListener('click', () => { state.planOpts.minutes = +b.dataset.min; openPlanSetup(); }));
   infoContent.querySelectorAll('[data-days]').forEach((b) => b.addEventListener('click', () => { state.planOpts.days = +b.dataset.days; openPlanSetup(); }));
@@ -757,6 +768,11 @@ function renderPlan(plan, tab = 'A') {
 }
 
 $('#make-plan').addEventListener('click', () => { document.body.classList.remove('panel-open'); openPlanSetup(); });
+$('#plan-top').addEventListener('click', () => {
+  document.body.classList.remove('panel-open');
+  if (state.plan && state.complaints.length) renderPlan(state.plan);
+  else openPlanSetup();
+});
 $('#open-plan').addEventListener('click', () => { document.body.classList.remove('panel-open'); if (state.plan) renderPlan(state.plan); });
 
 function openComplaint(id) {
@@ -802,6 +818,7 @@ function renderComplaint(c) {
     <h3 class="small muted">DOPORUČENÁ CVIČENÍ (${list.length})</h3>
     ${list.length ? list.map((ex, i) => exerciseCard(ex, i === 0)).join('') : '<p class="muted">Pro tuto kombinaci zatím nemáme vhodné cvičení. Obraťte se prosím na odborníka.</p>'}
     <p class="muted small">Cvičte pravidelně, pomalu a bez ostré bolesti. Pokud se potíže do 2–3 týdnů nezlepší, vyhledejte odborníka.</p>
+    <button class="btn" id="plan-from-complaint">📋 Sestavit plán ze všech potíží (${state.complaints.length})</button>
     <button class="btn ghost" id="del-complaint">Smazat tuto potíž</button>
   `);
 
@@ -823,6 +840,7 @@ function renderComplaint(c) {
     renderComplaint(c);
   }));
   $('#del-complaint').addEventListener('click', () => deleteComplaint(c.id));
+  $('#plan-from-complaint').addEventListener('click', () => openPlanSetup());
   bindInnervation(innervation(c.point), c.point);
   bindExerciseCards();
 }
