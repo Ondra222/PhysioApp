@@ -1,18 +1,22 @@
 // Tělesné oblasti a jejich určení z bodu na postavě.
-// Modul je záměrně bez závislosti na Three.js, aby šel testovat v Node.
+// Bez závislosti na Three.js, aby šel modul testovat v Node.
+//
+// Souřadnice: metry, chodidla na y = 0, obličej ke +z, pravá strana těla = -x.
+// Klouby vycházejí z kostí anatomického modelu (js/landmarks.js).
+import { LM } from './landmarks.js';
 
-// Klouby levé strany postavy (x > 0). Pravá strana = zrcadlení přes x.
-// Jednotky ~ metry, postava je vysoká cca 1,78 m, chodidla na y = 0,
-// postava je otočená obličejem ke kladné ose z.
+const J = (name) => LM[`${name}_left`];
+
+// Klouby levé strany (x > 0); pravá strana se získá zrcadlením přes x.
 export const SKELETON = {
-  shoulder: [0.19, 1.42, 0],
-  elbow: [0.26, 1.13, -0.01],
-  wrist: [0.31, 0.87, 0.01],
-  hand: [0.335, 0.75, 0.015],
-  hip: [0.09, 0.93, 0],
-  knee: [0.1, 0.51, 0.01],
-  ankle: [0.105, 0.08, -0.01],
-  toe: [0.11, 0.015, 0.15],
+  shoulder: J('shoulder'),
+  elbow: J('elbow'),
+  wrist: J('wrist'),
+  hand: J('hand'),
+  hip: J('hip'),
+  knee: J('knee'),
+  ankle: J('ankle'),
+  toe: J('toe'),
 };
 
 export function joint(name, s = 1) {
@@ -37,10 +41,18 @@ export const REGIONS = {
 
 export const SIDES = { leva: 'levá strana', prava: 'pravá strana', stred: 'střed' };
 
+// Výškové hranice oblastí trupu (m)
+export const LEVELS = {
+  head: 1.5,        // nad bradou / C1
+  neckBase: 1.335,  // kořen krku (šíje)
+  shoulder: 1.27,   // spodní hranice ramene
+  thoracic: 1.09,   // přechod hrudní/bederní páteře (Th12)
+  pelvis: 0.875,    // hýždě / třísla
+};
+
 function sub(a, b) { return [a[0] - b[0], a[1] - b[1], a[2] - b[2]]; }
 function dot(a, b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
 
-// Vzdálenost bodu od úsečky (s volitelným zploštěním v ose z) a parametr t.
 function segInfo(p, a, b, zScale = 1) {
   const ab = sub(b, a);
   const ap = sub(p, a);
@@ -59,19 +71,19 @@ function segInfo(p, a, b, zScale = 1) {
 export function detectRegion(p) {
   const [x, y, z] = p;
   const s = x < 0 ? -1 : 1;
-  const side = Math.abs(x) < 0.03 ? 'stred' : x < 0 ? 'prava' : 'leva';
+  const side = Math.abs(x) < 0.025 ? 'stred' : x < 0 ? 'prava' : 'leva';
 
-  if (y > 1.555) return { region: 'hlava', side };
+  if (y > LEVELS.head || (y > 1.44 && z > 0.06)) return { region: 'hlava', side };
 
   const segs = [
-    { id: 'arm_upper', a: joint('shoulder', s), b: joint('elbow', s), r: 0.05 },
-    { id: 'arm_fore', a: joint('elbow', s), b: joint('wrist', s), r: 0.04 },
+    { id: 'arm_upper', a: joint('shoulder', s), b: joint('elbow', s), r: 0.045 },
+    { id: 'arm_fore', a: joint('elbow', s), b: joint('wrist', s), r: 0.037 },
     { id: 'hand', a: joint('wrist', s), b: joint('hand', s), r: 0.035 },
-    { id: 'thigh', a: joint('hip', s), b: joint('knee', s), r: 0.08 },
-    { id: 'shin', a: joint('knee', s), b: joint('ankle', s), r: 0.055 },
+    { id: 'thigh', a: joint('hip', s), b: joint('knee', s), r: 0.075 },
+    { id: 'shin', a: joint('knee', s), b: joint('ankle', s), r: 0.05 },
     { id: 'foot', a: joint('ankle', s), b: joint('toe', s), r: 0.045 },
-    { id: 'torso', a: [0, 0.9, 0], b: [0, 1.44, 0], r: 0.17, zScale: 0.62 },
-    { id: 'neck', a: [0, 1.44, 0], b: [0, 1.56, 0], r: 0.06 },
+    { id: 'torso', a: [0, 0.8, 0.015], b: [0, 1.36, 0], r: 0.15, zScale: 0.8 },
+    { id: 'neck', a: [0, 1.36, 0], b: [0, 1.5, 0], r: 0.06 },
   ];
 
   let best = null;
@@ -82,27 +94,26 @@ export function detectRegion(p) {
   }
 
   const ax = Math.abs(x);
+  const back = z < 0.005;
   let region;
   switch (best.id) {
     case 'arm_upper': region = best.t < 0.8 ? 'rameno' : 'loket'; break;
-    case 'arm_fore': region = best.t < 0.55 ? 'loket' : 'zapesti'; break;
+    case 'arm_fore': region = best.t < 0.5 ? 'loket' : 'zapesti'; break;
     case 'hand': region = 'zapesti'; break;
-    case 'thigh': region = best.t < 0.4 ? 'kycel' : 'koleno'; break;
-    case 'shin': region = best.t < 0.3 ? 'koleno' : 'kotnik'; break;
+    case 'thigh': region = best.t < 0.35 ? 'kycel' : 'koleno'; break;
+    case 'shin': region = best.t < 0.25 ? 'koleno' : 'kotnik'; break;
     case 'foot': region = 'kotnik'; break;
     case 'neck': region = 'krk'; break;
     case 'torso': {
-      if (y > 1.34 && ax > 0.13) region = 'rameno';
-      else if (y > 1.4) region = 'krk';
-      else if (z < 0) {
-        if (y > 1.13) region = 'horni_zada';
-        else if (y < 0.98 && ax > 0.06) region = 'kycel';
+      if (y > LEVELS.shoulder && ax > 0.11) region = 'rameno';
+      else if (y > LEVELS.neckBase && (back || y > 1.37)) region = 'krk';
+      else if (back) {
+        if (y > LEVELS.thoracic) region = 'horni_zada';
+        else if (y < LEVELS.pelvis && ax > 0.05) region = 'kycel';
         else region = 'bedra';
-      } else {
-        if (y > 1.12) region = 'hrudnik';
-        else if (y < 0.98 && ax > 0.07) region = 'kycel';
-        else region = 'bricho';
-      }
+      } else if (y > LEVELS.thoracic) region = 'hrudnik';
+      else if (y < LEVELS.pelvis && ax > 0.06) region = 'kycel';
+      else region = 'bricho';
       break;
     }
     default: region = 'bedra';

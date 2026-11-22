@@ -5,25 +5,25 @@ import { detectRegion, REGIONS } from '../js/regions.js';
 import { EXERCISES, SYMPTOMS, selectExercises, redFlags } from '../js/exercises.js';
 
 const cases = [
-  [[0, 1.68, 0.1], 'hlava'],
-  [[0, 1.5, -0.05], 'krk'],
-  [[0.08, 1.43, -0.06], 'krk'],
-  [[0.2, 1.42, 0.03], 'rameno'],
-  [[-0.23, 1.28, 0.04], 'rameno'],
-  [[0.26, 1.12, -0.04], 'loket'],
-  [[0.3, 0.9, 0.02], 'zapesti'],
-  [[0.33, 0.78, 0.01], 'zapesti'],
-  [[0.06, 1.3, 0.1], 'hrudnik'],
-  [[0.05, 1.28, -0.1], 'horni_zada'],
-  [[0.03, 1.05, -0.09], 'bedra'],
-  [[0.0, 0.95, -0.11], 'bedra'],
-  [[0.03, 1.05, 0.09], 'bricho'],
-  [[0.08, 0.9, -0.11], 'kycel'],
-  [[0.15, 0.93, 0.0], 'kycel'],
-  [[0.1, 0.52, 0.06], 'koleno'],
-  [[0.1, 0.65, 0.07], 'koleno'],
-  [[0.1, 0.3, -0.05], 'kotnik'],
-  [[0.11, 0.03, 0.12], 'kotnik'],
+  [[0, 1.6, 0.08], 'hlava'],
+  [[0, 1.42, -0.05], 'krk'],
+  [[0.07, 1.36, -0.07], 'krk'],
+  [[0.19, 1.36, 0.0], 'rameno'],
+  [[-0.2, 1.2, 0.03], 'rameno'],
+  [[0.21, 1.06, -0.05], 'loket'],
+  [[0.25, 0.82, 0.04], 'zapesti'],
+  [[0.27, 0.72, 0.08], 'zapesti'],
+  [[0.06, 1.22, 0.12], 'hrudnik'],
+  [[0.05, 1.2, -0.11], 'horni_zada'],
+  [[0.03, 0.98, -0.08], 'bedra'],
+  [[0.0, 0.88, -0.1], 'bedra'],
+  [[0.03, 1.0, 0.13], 'bricho'],
+  [[0.08, 0.82, -0.12], 'kycel'],
+  [[0.15, 0.82, 0.0], 'kycel'],
+  [[0.075, 0.43, 0.06], 'koleno'],
+  [[0.08, 0.6, 0.07], 'koleno'],
+  [[0.075, 0.25, -0.06], 'kotnik'],
+  [[0.08, 0.03, 0.1], 'kotnik'],
 ];
 
 test('detectRegion určí správné oblasti', () => {
@@ -36,6 +36,7 @@ test('detectRegion určí stranu', () => {
   assert.equal(detectRegion([0.2, 1.42, 0]).side, 'leva');
   assert.equal(detectRegion([-0.2, 1.42, 0]).side, 'prava');
   assert.equal(detectRegion([0, 1.1, -0.1]).side, 'stred');
+  assert.equal(detectRegion([-0.08, 0.6, 0.07]).side, 'prava');
 });
 
 test('každá oblast má cviky pro bolest i tlak', () => {

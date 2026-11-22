@@ -1,386 +1,271 @@
-// Procedurální 3D model lidského těla rozdělený do vrstev.
-// Zjednodušený (stylizovaný) model – každou strukturu lze později
-// nahradit přesným anatomickým modelem (glTF) se stejnými userData.
+// Anatomický 3D model těla rozdělený do vrstev.
+//
+// Kůže, svaly, kosti, cévy trupu a mozek pocházejí z databáze BodyParts3D
+// (© The Database Center for Life Science, licence CC BY-SA 2.1 Japan),
+// převedené nástrojem tools/build_models.py do models/*.glb.
+// Periferní nervy, mícha a cévy končetin v BodyParts3D nejsou, proto jsou
+// dokreslené zde podle orientačních bodů kostry (js/landmarks.js).
 import * as THREE from 'three';
-import { joint } from './regions.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { LM, SPINE } from './landmarks.js';
 
 export const LAYER_DEFS = {
-  skin: { name: 'Kůže', color: '#e8b896' },
-  muscles: { name: 'Svaly', color: '#b5403a' },
-  bones: { name: 'Kosti', color: '#ece4d0' },
-  vessels: { name: 'Cévy', color: '#d8232a' },
-  nerves: { name: 'Nervy', color: '#f2c94c' },
+  skin: { name: 'Kůže', color: '#d9a07e' },
+  muscles: { name: 'Svaly', color: '#a3302a' },
+  bones: { name: 'Kosti', color: '#e6dcc4' },
+  vessels: { name: 'Cévy', color: '#c0141c' },
+  nerves: { name: 'Nervy a mozek', color: '#efc94c' },
 };
 
-// ---------------------------------------------------------------------------
-// Popisky struktur
-// ---------------------------------------------------------------------------
-const INFO = {
-  skin: ['Kůže', 'Cutis', 'Největší orgán těla. Chrání před vnějším prostředím, reguluje teplotu a obsahuje receptory pro dotek, tlak, teplotu i bolest.'],
-
-  deltoid: ['Deltový sval', 'M. deltoideus', 'Tvoří obrys ramene a zvedá paži do upažení, předpažení i zapažení. Častý zdroj bolesti při přetížení ramene.'],
-  pec: ['Velký prsní sval', 'M. pectoralis major', 'Přitahuje paži k tělu a stáčí ji dovnitř. Při sedavém životě se zkracuje a táhne ramena dopředu.'],
-  biceps: ['Dvojhlavý sval pažní', 'M. biceps brachii', 'Ohýbá loket a otáčí předloktí dlaní nahoru. Jeho dlouhá šlacha prochází ramenním kloubem.'],
-  triceps: ['Trojhlavý sval pažní', 'M. triceps brachii', 'Natahuje loket. Je hlavním svalem při kliku a odtlačování.'],
-  flexors: ['Ohýbače zápěstí a prstů', 'Mm. flexores antebrachii', 'Svaly na vnitřní straně předloktí. Ohýbají zápěstí a prsty; jejich přetížení vede ke „golfovému lokti“.'],
-  extensors: ['Natahovače zápěstí a prstů', 'Mm. extensores antebrachii', 'Svaly na hřbetní straně předloktí. Přetížení při práci s myší či nářadím způsobuje „tenisový loket“.'],
-  rectus: ['Přímý sval břišní', 'M. rectus abdominis', 'Ohýbá trup vpřed a spolu s ostatními břišními svaly stabilizuje páteř.'],
-  obliques: ['Šikmé břišní svaly', 'Mm. obliqui abdominis', 'Otáčejí a uklánějí trup, podílejí se na stabilitě bederní páteře a na dýchání.'],
-  trap: ['Trapézový sval', 'M. trapezius', 'Velký plochý sval šíje a horní části zad. Hýbe lopatkou a drží ramena.'],
-  trapUpper: ['Trapézový sval – horní část', 'M. trapezius, pars descendens', 'Zvedá ramena. Při stresu a práci u počítače bývá ztuhlý a bolestivý a často stojí za tenzní bolestí hlavy.'],
-  rhomboid: ['Rombické svaly', 'Mm. rhomboidei', 'Přitahují lopatky k páteři. Jejich oslabení přispívá ke „kulatým zádům“.'],
-  lat: ['Široký sval zádový', 'M. latissimus dorsi', 'Největší sval zad. Přitahuje paži k tělu a dozadu, např. při shybu nebo veslování.'],
-  erector: ['Vzpřimovač páteře', 'M. erector spinae', 'Dlouhé svaly podél páteře, které ji vzpřimují a drží. Při přetížení se stahují a bolí v bedrech.'],
-  scm: ['Zdvihač hlavy', 'M. sternocleidomastoideus', 'Otáčí a uklání hlavu. Při předsunutém držení hlavy bývá přetížený.'],
-  rotator: ['Rotátorová manžeta (nadhřebenový sval)', 'M. supraspinatus', 'Skupina malých svalů, které drží hlavici ramenního kloubu. Častý zdroj bolesti při zvedání paže.'],
-  gluteMax: ['Velký sval hýžďový', 'M. gluteus maximus', 'Nejsilnější sval těla. Natahuje kyčel – při chůzi do schodů, vstávání či běhu.'],
-  gluteMed: ['Střední sval hýžďový', 'M. gluteus medius', 'Stabilizuje pánev při stoji na jedné noze. Jeho slabost přispívá k bolesti kyčle, kolena i beder.'],
-  quad: ['Čtyřhlavý sval stehenní', 'M. quadriceps femoris', 'Natahuje koleno a chrání ho. Po zranění kolena rychle ochabuje.'],
-  ham: ['Hamstringy (zadní stehenní svaly)', 'M. biceps femoris, m. semitendinosus, m. semimembranosus', 'Ohýbají koleno a natahují kyčel. Zkrácené hamstringy omezují předklon.'],
-  adductor: ['Přitahovače stehna', 'Mm. adductores', 'Přitahují nohu k ose těla. Natažení třísel je častým sportovním zraněním.'],
-  gastro: ['Dvojhlavý sval lýtkový', 'M. gastrocnemius', 'Zvedá patu (výpon) a pomáhá ohýbat koleno. Přechází v Achillovu šlachu.'],
-  tibAnt: ['Přední sval holenní', 'M. tibialis anterior', 'Zvedá špičku nohy. Přetížení způsobuje bolest na přední straně bérce.'],
-  achilles: ['Achillova šlacha', 'Tendo calcaneus', 'Nejsilnější šlacha těla, spojuje lýtkové svaly s patní kostí.'],
-
-  skull: ['Lebka', 'Cranium', 'Chrání mozek a smyslové orgány.'],
-  mandible: ['Dolní čelist', 'Mandibula', 'Jediná pohyblivá kost lebky. Napětí žvýkacích svalů může souviset s bolestí hlavy a krku.'],
-  vertC: ['Krční obratel', 'Vertebra cervicalis', 'Sedm krčních obratlů nese hlavu a umožňuje velký rozsah pohybu krku.'],
-  vertTh: ['Hrudní obratel', 'Vertebra thoracica', 'Dvanáct hrudních obratlů, ke kterým se připojují žebra.'],
-  vertL: ['Bederní obratel', 'Vertebra lumbalis', 'Pět největších obratlů nese váhu horní části těla. Mezi nimi jsou ploténky, jejichž výhřez může způsobit bolest vystřelující do nohy.'],
-  sacrum: ['Kost křížová', 'Os sacrum', 'Spojuje páteř s pánví prostřednictvím křížokyčelních kloubů.'],
-  rib: ['Žebro', 'Costa', '12 párů žeber tvoří hrudní koš, chrání srdce a plíce a pohybuje se při dýchání.'],
-  sternum: ['Hrudní kost', 'Sternum', 'Plochá kost uprostřed hrudníku, ke které se připojují žebra a klíční kosti.'],
-  clavicle: ['Klíční kost', 'Clavicula', 'Spojuje hrudní kost s lopatkou. Patří mezi nejčastěji zlomené kosti.'],
-  scapula: ['Lopatka', 'Scapula', 'Plochá kost na zádech, kloubně spojená s kostí pažní. Její postavení ovlivňuje funkci ramene.'],
-  ilium: ['Kost kyčelní', 'Os ilium', 'Tvoří lopatu pánve, upínají se na ni hýžďové a břišní svaly.'],
-  pelvicRing: ['Kost stydká a sedací', 'Os pubis, os ischii', 'Spodní část pánve. Na sedací hrboly se upínají hamstringy.'],
-  humerus: ['Kost pažní', 'Humerus', 'Dlouhá kost paže. Její hlavice tvoří ramenní kloub, dolní konec loketní kloub.'],
-  radius: ['Kost vřetenní', 'Radius', 'Kost předloktí na straně palce. Otáčí se kolem kosti loketní.'],
-  ulna: ['Kost loketní', 'Ulna', 'Kost předloktí na straně malíčku, tvoří hrot lokte.'],
-  handBones: ['Kosti ruky', 'Ossa manus', '27 kostí: zápěstní kůstky, záprstní kosti a články prstů.'],
-  femur: ['Kost stehenní', 'Femur', 'Nejdelší a nejsilnější kost těla. Její hlavice tvoří kyčelní kloub.'],
-  patella: ['Čéška', 'Patella', 'Kost ve šlaše čtyřhlavého svalu, zlepšuje páku při natažení kolena.'],
-  tibia: ['Kost holenní', 'Tibia', 'Hlavní nosná kost bérce, na přední straně hmatná pod kůží.'],
-  fibula: ['Kost lýtková', 'Fibula', 'Tenká kost na vnější straně bérce, tvoří zevní kotník.'],
-  footBones: ['Kosti nohy', 'Ossa pedis', '26 kostí tvořících klenbu nohy, včetně kosti patní a hlezenní.'],
-
-  heart: ['Srdce', 'Cor', 'Svalová pumpa, která v klidu přečerpá zhruba 5 litrů krve za minutu.'],
-  aorta: ['Srdečnice (aorta)', 'Aorta', 'Největší tepna těla, vede okysličenou krev ze srdce do celého těla.'],
-  carotid: ['Společná krkavice', 'A. carotis communis', 'Zásobuje krví hlavu a mozek. Na krku je hmatný její tep.'],
-  subclavian: ['Podklíčková tepna', 'A. subclavia', 'Vede krev do horní končetiny. Prochází úzkým prostorem mezi klíční kostí a prvním žebrem.'],
-  brachialA: ['Pažní tepna', 'A. brachialis', 'Hlavní tepna paže, měří se na ní krevní tlak.'],
-  radialA: ['Vřetenní tepna', 'A. radialis', 'Tepna na straně palce, na zápěstí se na ní měří tep.'],
-  ulnarA: ['Loketní tepna', 'A. ulnaris', 'Tepna na straně malíčku, zásobuje ruku.'],
-  iliacA: ['Společná kyčelní tepna', 'A. iliaca communis', 'Vzniká rozdělením aorty a vede krev do pánve a dolní končetiny.'],
-  femoralA: ['Stehenní tepna', 'A. femoralis', 'Hlavní tepna stehna. Její tep je hmatný v třísle.'],
-  poplitealA: ['Podkolenní tepna', 'A. poplitea', 'Prochází v podkolenní jamce za kolenem.'],
-  tibialA: ['Zadní holenní tepna', 'A. tibialis posterior', 'Zásobuje lýtko a chodidlo, tep je hmatný za vnitřním kotníkem.'],
-  cava: ['Dutá žíla', 'V. cava superior et inferior', 'Největší žíly těla, přivádějí odkysličenou krev zpět do srdce.'],
-  jugular: ['Vnitřní hrdelní žíla', 'V. jugularis interna', 'Odvádí krev z mozku a hlavy.'],
-  cephalic: ['Hlavová žíla', 'V. cephalica', 'Povrchová žíla na vnější straně paže.'],
-  saphena: ['Velká skrytá žíla', 'V. saphena magna', 'Nejdelší žíla těla na vnitřní straně nohy. Při oslabení jejích chlopní vznikají křečové žíly.'],
-  femoralV: ['Stehenní žíla', 'V. femoralis', 'Hluboká žíla stehna. Trombóza hlubokých žil se projevuje otokem, bolestí a teplem končetiny.'],
-
-  brain: ['Mozek', 'Encephalon', 'Řídicí centrum nervové soustavy. Teprve zde vzniká vědomé vnímání bolesti.'],
-  spinalCord: ['Mícha', 'Medulla spinalis', 'Vede signály mezi mozkem a tělem. Mezi obratli z ní vystupují míšní nervy.'],
-  plexus: ['Pažní pleteň', 'Plexus brachialis', 'Svazek nervů z krční páteře do paže. Útlak v oblasti krku či ramene může vyvolat brnění ruky.'],
-  median: ['Středový nerv', 'N. medianus', 'Prochází karpálním tunelem v zápěstí. Jeho útlak (syndrom karpálního tunelu) způsobuje brnění palce, ukazováku a prostředníku.'],
-  ulnarN: ['Loketní nerv', 'N. ulnaris', 'Prochází za vnitřní stranou lokte („brňavka“). Útlak vyvolává brnění malíčku a prsteníku.'],
-  radialN: ['Vřetenní nerv', 'N. radialis', 'Obtáčí kost pažní a ovládá natahovače zápěstí a prstů.'],
-  sciatic: ['Sedací nerv', 'N. ischiadicus', 'Nejsilnější nerv těla. Jeho podráždění (ischias) způsobuje bolest a brnění vystřelující z hýždě do nohy.'],
-  tibialN: ['Holenní nerv', 'N. tibialis', 'Pokračování sedacího nervu v lýtku, ovládá lýtkové svaly a zajišťuje citlivost chodidla.'],
-  peroneal: ['Společný lýtkový nerv', 'N. fibularis communis', 'Obtáčí hlavici kosti lýtkové těsně pod kůží – při útlaku (např. přehozením nohy přes nohu) vzniká brnění nártu.'],
-  femoralN: ['Stehenní nerv', 'N. femoralis', 'Ovládá čtyřhlavý sval stehna a zajišťuje citlivost přední strany stehna.'],
-};
+const MODEL_URL = (layer) => `models/${layer}.glb`;
 
 // ---------------------------------------------------------------------------
-// Geometrické pomocníky
+// Materiály
 // ---------------------------------------------------------------------------
-const UP = new THREE.Vector3(0, 1, 0);
-const V = (a) => (a instanceof THREE.Vector3 ? a.clone() : new THREE.Vector3(a[0], a[1], a[2]));
-const SPHERE = new THREE.SphereGeometry(1, 28, 18);
-
-function orient(mesh, a, b) {
-  const dir = new THREE.Vector3().subVectors(b, a);
-  const len = dir.length();
-  mesh.position.copy(a).addScaledVector(dir, 0.5);
-  mesh.quaternion.setFromUnitVectors(UP, dir.normalize());
-  return len;
+function hash(str) {
+  let h = 2166136261;
+  for (let i = 0; i < str.length; i++) h = Math.imul(h ^ str.charCodeAt(i), 16777619);
+  return ((h >>> 0) % 10000) / 10000;
 }
 
-function ellipsoidBetween(a, b, r, mat, rz = r) {
-  const m = new THREE.Mesh(SPHERE, mat);
-  const len = orient(m, V(a), V(b));
-  m.scale.set(r, len / 2, rz);
-  return m;
-}
+const TENDON_RE = /šlacha|vaz\b|vaz |aponeuróza|pruh|čára|poutač|oblouk/i;
 
-function ellipsoidAt(c, rx, ry, rz, mat, rot = [0, 0, 0]) {
-  const m = new THREE.Mesh(SPHERE, mat);
-  m.position.copy(V(c));
-  m.scale.set(rx, ry, rz);
-  m.rotation.set(rot[0], rot[1], rot[2]);
-  return m;
-}
-
-function taper(a, b, rA, rB, mat) {
-  const A = V(a), B = V(b);
-  const len = A.distanceTo(B);
-  const m = new THREE.Mesh(new THREE.CylinderGeometry(rB, rA, len, 28, 1, true), mat);
-  orient(m, A, B);
-  return m;
-}
-
-function capsule(a, b, r, mat) {
-  const A = V(a), B = V(b);
-  const len = Math.max(0.001, A.distanceTo(B) - 2 * r);
-  const m = new THREE.Mesh(new THREE.CapsuleGeometry(r, len, 6, 12), mat);
-  orient(m, A, B);
-  return m;
-}
-
-function tube(points, r, mat, seg = 64) {
-  const curve = new THREE.CatmullRomCurve3(points.map(V));
-  return new THREE.Mesh(new THREE.TubeGeometry(curve, seg, r, 10, false), mat);
-}
-
-const add3 = (p, d) => [p[0] + d[0], p[1] + d[1], p[2] + d[2]];
-const mx = (p, s) => [p[0] * s, p[1], p[2]]; // zrcadlení podle strany
-
-// ---------------------------------------------------------------------------
-// Stavba těla
-// ---------------------------------------------------------------------------
-export function buildBody() {
-  const root = new THREE.Group();
-  const layers = {};
-  for (const key of Object.keys(LAYER_DEFS)) {
-    const g = new THREE.Group();
-    g.name = key;
-    layers[key] = g;
-    root.add(g);
+function makeMaterial(layer, meta, id) {
+  const j = hash(id) - 0.5; // -0.5 .. 0.5 pro jemné odlišení sousedních struktur
+  switch (layer) {
+    case 'skin':
+      if (meta.g === 'eye') return new THREE.MeshPhysicalMaterial({ color: 0xf4f1ec, roughness: 0.15, clearcoat: 1 });
+      if (meta.g === 'lips') return new THREE.MeshPhysicalMaterial({ color: 0xb8706a, roughness: 0.45, sheen: 0.4 });
+      return new THREE.MeshPhysicalMaterial({
+        color: 0xc88a68, roughness: 0.52, sheen: 0.35, sheenRoughness: 0.45, sheenColor: new THREE.Color(0xffbfa0),
+        clearcoat: 0.06, clearcoatRoughness: 0.5, transparent: true, opacity: 0.3, depthWrite: false,
+      });
+    case 'muscles': {
+      if (TENDON_RE.test(meta.n) || meta.g === 'linea' || meta.g === 'retinac' || meta.g === 'ligament') {
+        return new THREE.MeshPhysicalMaterial({ color: 0xe8dcc8, roughness: 0.35, clearcoat: 0.6, clearcoatRoughness: 0.3, sheen: 0.3 });
+      }
+      const c = new THREE.Color().setHSL(0.0 + j * 0.02, 0.68 + j * 0.1, 0.27 + j * 0.06);
+      return new THREE.MeshPhysicalMaterial({
+        color: c, roughness: 0.48, clearcoat: 0.22, clearcoatRoughness: 0.4, sheen: 0.18, sheenRoughness: 0.5,
+        sheenColor: new THREE.Color(0xff7060),
+      });
+    }
+    case 'bones':
+      if (meta.g === 'disc' || meta.g === 'cartilage' || meta.g === 'larynx' || meta.g === 'nose') {
+        return new THREE.MeshPhysicalMaterial({ color: 0xc9dbe0, roughness: 0.3, clearcoat: 0.5, transmission: 0 });
+      }
+      if (meta.g === 'membrane') return new THREE.MeshPhysicalMaterial({ color: 0xd8ccb4, roughness: 0.5, transparent: true, opacity: 0.7 });
+      return new THREE.MeshPhysicalMaterial({ color: new THREE.Color().setHSL(0.1, 0.32, 0.76 + j * 0.05), roughness: 0.7, clearcoat: 0.05 });
+    case 'vessels':
+      if (meta.g === 'heart') return new THREE.MeshPhysicalMaterial({ color: 0x8c1d1d, roughness: 0.4, clearcoat: 0.6, sheen: 0.4 });
+      if (meta.g === 'vein' || /žíl/i.test(meta.n)) return new THREE.MeshPhysicalMaterial({ color: 0x2a4aa8, roughness: 0.35, clearcoat: 0.6 });
+      return new THREE.MeshPhysicalMaterial({ color: 0xb4141c, roughness: 0.35, clearcoat: 0.6 });
+    case 'nerves':
+      if (meta.g === 'nerve') return new THREE.MeshPhysicalMaterial({ color: 0xf1cf5b, roughness: 0.4, clearcoat: 0.4, sheen: 0.5, emissive: 0x2a1e00 });
+      return new THREE.MeshPhysicalMaterial({ color: new THREE.Color().setHSL(0.0, 0.38, 0.78 + j * 0.05), roughness: 0.55, clearcoat: 0.3, sheen: 0.4 });
+    default:
+      return new THREE.MeshStandardMaterial({ color: 0x999999 });
   }
-  const pickables = [];
+}
 
-  const M = {
-    skin: new THREE.MeshStandardMaterial({
-      color: 0xe8b896, roughness: 0.75, metalness: 0, transparent: true, opacity: 0.3, depthWrite: false,
-    }),
-    muscle: new THREE.MeshStandardMaterial({ color: 0xb5403a, roughness: 0.55 }),
-    tendon: new THREE.MeshStandardMaterial({ color: 0xe9dcc4, roughness: 0.5 }),
-    bone: new THREE.MeshStandardMaterial({ color: 0xeee6d2, roughness: 0.8 }),
-    artery: new THREE.MeshStandardMaterial({ color: 0xd8232a, roughness: 0.4 }),
-    vein: new THREE.MeshStandardMaterial({ color: 0x2f5fd0, roughness: 0.4 }),
-    heart: new THREE.MeshStandardMaterial({ color: 0xa3141b, roughness: 0.45 }),
-    nerve: new THREE.MeshStandardMaterial({ color: 0xf2c94c, roughness: 0.4, emissive: 0x3a2a00 }),
-    brain: new THREE.MeshStandardMaterial({ color: 0xe9a3b0, roughness: 0.6 }),
-  };
+// ---------------------------------------------------------------------------
+// Dokreslené struktury (nervy, mícha, cévy končetin)
+// ---------------------------------------------------------------------------
+const EXTRA_INFO = {
+  spinalCord: ['Mícha', 'Medulla spinalis', 'nerve', 'Vede signály mezi mozkem a tělem. Mezi obratli z ní vystupují míšní nervy. Končí ve výši 1.–2. bederního obratle.'],
+  caudaEquina: ['Koňský ohon', 'Cauda equina', 'nerve', 'Svazek nervových kořenů pod koncem míchy. Jeho útlak (např. velkým výhřezem ploténky) je akutní stav – projevuje se necitlivostí v rozkroku a poruchou močení.'],
+  plexus: ['Pažní pleteň', 'Plexus brachialis', 'nerve', 'Svazek nervů z krční páteře do paže, prochází mezi kloněnými svaly a pod klíční kostí. Útlak v oblasti krku či ramene může vyvolat brnění ruky.'],
+  median: ['Středový nerv', 'N. medianus', 'nerve', 'Prochází karpálním tunelem v zápěstí. Jeho útlak (syndrom karpálního tunelu) způsobuje brnění palce, ukazováku a prostředníku.'],
+  ulnarN: ['Loketní nerv', 'N. ulnaris', 'nerve', 'Prochází za vnitřní stranou lokte („brňavka“). Útlak vyvolává brnění malíku a prsteníku.'],
+  radialN: ['Vřetenní nerv', 'N. radialis', 'nerve', 'Obtáčí kost pažní a ovládá natahovače zápěstí a prstů.'],
+  sciatic: ['Sedací nerv', 'N. ischiadicus', 'nerve', 'Nejsilnější nerv těla. Jeho podráždění (ischias) způsobuje bolest a brnění vystřelující z hýždě do nohy.'],
+  tibialN: ['Holenní nerv', 'N. tibialis', 'nerve', 'Pokračování sedacího nervu v lýtku. Ovládá lýtkové svaly a zajišťuje citlivost chodidla; za vnitřním kotníkem může být utlačen (tarzální tunel).'],
+  peroneal: ['Společný lýtkový nerv', 'N. fibularis communis', 'nerve', 'Obtáčí hlavici kosti lýtkové těsně pod kůží – při útlaku (např. přehozením nohy přes nohu) vzniká brnění nártu a slabost zvedání špičky.'],
+  femoralN: ['Stehenní nerv', 'N. femoralis', 'nerve', 'Ovládá čtyřhlavý sval stehna a zajišťuje citlivost přední strany stehna.'],
+  axillaryA: ['Podpažní a pažní tepna', 'A. axillaris, a. brachialis', 'artery', 'Hlavní tepna paže, na pažní tepně se měří krevní tlak.'],
+  radialA: ['Vřetenní tepna', 'A. radialis', 'artery', 'Tepna na straně palce, na zápěstí se na ní měří tep.'],
+  ulnarA: ['Loketní tepna', 'A. ulnaris', 'artery', 'Tepna na straně malíku, zásobuje ruku.'],
+  femoralA: ['Stehenní tepna', 'A. femoralis', 'artery', 'Hlavní tepna stehna. Její tep je hmatný v třísle.'],
+  poplitealA: ['Podkolenní tepna', 'A. poplitea', 'artery', 'Prochází v podkolenní jamce za kolenem.'],
+  postTibialA: ['Zadní holenní tepna', 'A. tibialis posterior', 'artery', 'Zásobuje lýtko a chodidlo, tep je hmatný za vnitřním kotníkem.'],
+  antTibialA: ['Přední holenní tepna', 'A. tibialis anterior, a. dorsalis pedis', 'artery', 'Zásobuje přední stranu bérce a nárt, kde je hmatný její tep.'],
+  axillaryV: ['Podpažní a pažní žíla', 'V. axillaris, vv. brachiales', 'vein', 'Hluboké žíly paže, odvádějí krev z horní končetiny.'],
+  cephalic: ['Hlavová žíla', 'V. cephalica', 'vein', 'Povrchová žíla na vnější straně paže.'],
+  basilic: ['Královská žíla', 'V. basilica', 'vein', 'Povrchová žíla na vnitřní straně paže; v loketní jamce se z jejích spojek často odebírá krev.'],
+  femoralV: ['Stehenní a podkolenní žíla', 'V. femoralis, v. poplitea', 'vein', 'Hluboké žíly nohy. Trombóza hlubokých žil se projevuje otokem, bolestí a teplem končetiny.'],
+  saphena: ['Velká skrytá žíla', 'V. saphena magna', 'vein', 'Nejdelší žíla těla na vnitřní straně nohy. Při oslabení jejích chlopní vznikají křečové žíly.'],
+};
 
-  /** Zaregistruje mesh do vrstvy s popiskem. */
-  function reg(mesh, layer, key, side = null, extra = {}) {
-    const [name, latin, desc] = INFO[key];
-    mesh.material = mesh.material.clone();
-    mesh.userData = { layer, key, name, latin, desc, side, ...extra };
+const V3 = (a) => new THREE.Vector3(a[0], a[1], a[2]);
+
+function buildExtras(register) {
+  const nerveMat = () => makeMaterial('nerves', { g: 'nerve' }, 'n');
+  const arteryMat = () => makeMaterial('vessels', { g: 'artery', n: '' }, 'a');
+  const veinMat = () => makeMaterial('vessels', { g: 'vein', n: 'žíla' }, 'v');
+
+  function tube(key, pts, r, side, layer, mat) {
+    const curve = new THREE.CatmullRomCurve3(pts.map(V3), false, 'centripetal');
+    const len = curve.getLength();
+    const geo = new THREE.TubeGeometry(curve, Math.max(16, Math.round(len * 160)), r, 10, false);
+    const [n, la, g, d] = EXTRA_INFO[key];
+    register(new THREE.Mesh(geo, mat), layer, { n, la, g, d, s: side });
+  }
+
+  // Mícha a koňský ohon podél středů obratlů
+  const sp = Object.fromEntries(SPINE);
+  const cordKeys = SPINE.map(([k]) => k).slice(0, SPINE.findIndex(([k]) => k === 'L2'));
+  const cord = [[0, 1.535, 0.0], ...cordKeys.map((k) => [0, sp[k][1], sp[k][2] - 0.006])];
+  tube('spinalCord', cord, 0.0045, null, 'nerves', nerveMat());
+  tube('caudaEquina', [[0, sp.L1[1], sp.L1[2] - 0.006], [0, sp.L3[1], sp.L3[2] - 0.01], [0, sp.L5[1], sp.L5[2] - 0.014], [0, sp.S[1] + 0.02, sp.S[2] - 0.0]], 0.0035, null, 'nerves', nerveMat());
+
+  for (const [s, sn] of [[1, 'left'], [-1, 'right']]) {
+    const side = s > 0 ? 'leva' : 'prava';
+    const L = (k) => LM[`${k}_${sn}`];
+    // posun: dx kladně = do strany (laterálně), dz kladně = dopředu
+    const P = (b, dx = 0, dy = 0, dz = 0) => [b[0] + dx * s, b[1] + dy, b[2] + dz];
+    const lerp = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+    const S = L('shoulder'), E = L('elbow'), W = L('wrist'), palm = L('palm');
+    const Hp = L('hip'), K = L('knee'), A = L('ankle'), toe = L('toe'), heel = L('heel');
+    const AX = P(lerp(S, E, 0.13), -0.032, 0, 0.004);           // podpaží
+    const CUB = P(E, -0.006, 0.012, 0.022);                       // loketní jamka
+    const POP = P(K, 0, 0.05, -0.035);                            // podkolenní jamka
+
+    // --- Ruka: nervy ---
+    const c6 = sp.C6, c7 = sp.C7;
+    const plexStart = P([0, (c6[1] + c7[1]) / 2, c6[2]], 0.022, 0, 0.004);
+    const clavMid = lerp(L('clavicle_med'), L('clavicle_lat'), 0.6);
+    tube('plexus', [plexStart, P([0, 1.395, 0.012], 0.05), P(clavMid, 0, -0.016, -0.014), AX], 0.0042, side, 'nerves', nerveMat());
+    tube('median', [AX, P(lerp(S, E, 0.5), -0.018, 0, 0.012), CUB, P(lerp(E, W, 0.5), 0, 0, 0.014), P(W, 0, 0.004, 0.011), P(palm, 0.002, 0, 0.012)], 0.0028, side, 'nerves', nerveMat());
+    tube('ulnarN', [AX, P(lerp(S, E, 0.55), -0.022, 0, -0.004), P(L('epicondyle_med'), -0.002, 0.006, -0.013), P(lerp(E, W, 0.5), -0.014, 0, 0.008), P(L('wrist_uln'), 0.004, 0.004, 0.009), P(palm, -0.012, 0, 0.01)], 0.0028, side, 'nerves', nerveMat());
+    tube('radialN', [AX, P(lerp(S, E, 0.35), -0.004, 0, -0.022), P(lerp(S, E, 0.66), 0.016, 0, -0.012), P(L('epicondyle_lat'), -0.006, 0.012, 0.016), P(lerp(E, W, 0.5), 0.012, 0, 0.002), P(L('wrist_rad'), 0.004, 0.006, -0.004)], 0.0028, side, 'nerves', nerveMat());
+
+    // --- Ruka: cévy ---
+    const brachEnd = CUB;
+    tube('axillaryA', [L('subclavian_a_end'), P(clavMid, 0, -0.022, -0.006), P(AX, 0, 0, 0.008), P(lerp(S, E, 0.5), -0.016, 0, 0.016), brachEnd], 0.0035, side, 'vessels', arteryMat());
+    tube('radialA', [brachEnd, P(lerp(E, W, 0.5), 0.01, 0, 0.018), P(L('wrist_rad'), 0, 0.004, 0.009), P(palm, 0.008, 0.01, 0.012)], 0.0024, side, 'vessels', arteryMat());
+    tube('ulnarA', [brachEnd, P(lerp(E, W, 0.4), -0.012, 0, 0.015), P(L('wrist_uln'), 0.002, 0.004, 0.011), P(palm, -0.006, 0.0, 0.014)], 0.0024, side, 'vessels', arteryMat());
+    tube('axillaryV', [L('subclavian_v_end'), P(clavMid, 0, -0.024, 0.0), P(AX, -0.004, -0.005, 0.014), P(lerp(S, E, 0.55), -0.02, 0, 0.018), P(CUB, -0.004, 0, 0.004)], 0.0035, side, 'vessels', veinMat());
+    tube('cephalic', [P(clavMid, 0.02, -0.03, 0.028), P(lerp(S, E, 0.3), 0.018, 0, 0.032), P(lerp(S, E, 0.75), 0.022, 0, 0.024), P(E, 0.024, 0, 0.026), P(lerp(E, W, 0.5), 0.02, 0, 0.02), P(L('wrist_rad'), 0.006, 0, 0.012)], 0.0022, side, 'vessels', veinMat());
+    tube('basilic', [P(AX, 0, -0.04, 0.008), P(lerp(S, E, 0.7), -0.026, 0, 0.012), P(L('epicondyle_med'), -0.004, 0, 0.02), P(lerp(E, W, 0.5), -0.019, 0, 0.012), P(L('wrist_uln'), -0.004, 0, 0.012)], 0.0022, side, 'vessels', veinMat());
+
+    // --- Noha: nervy ---
+    const isch = L('ischial'), troch = L('trochanter');
+    const split = P(lerp(Hp, K, 0.8), 0, 0, -0.038);
+    const sacral = P(sp.S, 0.035, 0.015, -0.01);
+    tube('sciatic', [sacral, P(lerp(isch, troch, 0.45), 0, 0.03, -0.05), P(lerp(Hp, K, 0.4), -0.004, 0, -0.045), split], 0.0052, side, 'nerves', nerveMat());
+    tube('tibialN', [split, P(POP, 0, -0.03, 0.0), P(lerp(K, A, 0.5), -0.004, 0, -0.03), P(L('malleolus_med'), -0.004, 0.012, -0.016), P(lerp(heel, toe, 0.45), -0.008, 0.008, 0)], 0.0035, side, 'nerves', nerveMat());
+    tube('peroneal', [split, P(K, 0.026, 0.01, -0.03), P(L('fibula_head'), 0.012, -0.018, 0.002), P(lerp(L('fibula_head'), A, 0.4), 0.004, 0, 0.022), P(A, 0.012, 0.02, 0.034), P(lerp(A, toe, 0.55), 0.01, 0.012, 0)], 0.003, side, 'nerves', nerveMat());
+    const l3 = sp.L3;
+    tube('femoralN', [P(l3, 0.04, 0, 0.01), P(L('ext_iliac_a_end'), 0.014, 0.025, -0.008), P(L('ext_iliac_a_end'), 0.012, -0.01, 0.002), P(lerp(Hp, K, 0.25), 0.006, 0, 0.05)], 0.0035, side, 'nerves', nerveMat());
+
+    // --- Noha: cévy ---
+    const fa0 = L('ext_iliac_a_end');
+    tube('femoralA', [fa0, P(lerp(Hp, K, 0.25), -0.012, 0, 0.032), P(lerp(Hp, K, 0.6), -0.026, 0, 0.004), POP], 0.0042, side, 'vessels', arteryMat());
+    tube('poplitealA', [POP, P(K, 0, -0.03, -0.032)], 0.0038, side, 'vessels', arteryMat());
+    tube('postTibialA', [P(K, 0, -0.03, -0.032), P(lerp(K, A, 0.5), -0.006, 0, -0.026), P(L('malleolus_med'), -0.006, 0.012, -0.013), P(lerp(heel, toe, 0.5), -0.004, 0.012, 0)], 0.0028, side, 'vessels', arteryMat());
+    tube('antTibialA', [P(K, 0.006, -0.04, -0.02), P(lerp(K, A, 0.25), 0.012, 0, 0.012), P(lerp(K, A, 0.7), 0.008, 0, 0.022), P(A, 0.002, 0.012, 0.034), P(lerp(A, toe, 0.6), 0, 0.016, 0)], 0.0026, side, 'vessels', arteryMat());
+    tube('femoralV', [L('ext_iliac_v_end'), P(lerp(Hp, K, 0.25), -0.022, 0, 0.03), P(lerp(Hp, K, 0.6), -0.032, 0, 0.0), P(POP, -0.008, 0, 0.002), P(K, -0.006, -0.03, -0.028)], 0.0045, side, 'vessels', veinMat());
+    tube('saphena', [P(L('ext_iliac_v_end'), -0.004, -0.03, 0.006), P(lerp(Hp, K, 0.5), -0.05, 0, 0.012), P(K, -0.042, 0, -0.012), P(lerp(K, A, 0.5), -0.03, 0, -0.004), P(L('malleolus_med'), -0.006, 0.004, 0.022), P(lerp(A, toe, 0.5), -0.022, 0.016, 0)], 0.0024, side, 'vessels', veinMat());
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Tělo
+// ---------------------------------------------------------------------------
+export class Body {
+  constructor() {
+    this.root = new THREE.Group();
+    this.layers = {};
+    this.pickables = [];
+    this.loaded = {};
+    this.pending = {};
+    this.meta = null;
+    this.onLayerLoaded = null;
+    for (const key of Object.keys(LAYER_DEFS)) {
+      const g = new THREE.Group();
+      g.name = key;
+      this.layers[key] = g;
+      this.root.add(g);
+    }
+    this.loader = new GLTFLoader();
+  }
+
+  register(mesh, layer, meta, id = null) {
+    mesh.userData = {
+      layer, id, name: meta.n, latin: meta.la, group: meta.g, side: meta.s || null,
+      desc: meta.d ?? this.meta?.groups?.[meta.g] ?? '',
+    };
     if (layer === 'skin') mesh.renderOrder = 2;
-    layers[layer].add(mesh);
-    pickables.push(mesh);
-    return mesh;
+    this.layers[layer].add(mesh);
+    this.pickables.push(mesh);
   }
 
-  const sides = [1, -1];
-  const sideName = (s) => (s < 0 ? 'prava' : 'leva');
+  async init() {
+    const res = await fetch('models/parts.json');
+    this.meta = await res.json();
+    buildExtras((mesh, layer, meta) => this.register(mesh, layer, meta));
+  }
 
-  // ---------------- KŮŽE ----------------
-  reg(ellipsoidAt([0, 1.655, 0.005], 0.085, 0.115, 0.1, M.skin), 'skin', 'skin');
-  {
-    const nose = new THREE.Mesh(new THREE.ConeGeometry(0.014, 0.035, 12), M.skin);
-    nose.position.set(0, 1.645, 0.105);
-    nose.rotation.x = Math.PI / 2.4;
-    reg(nose, 'skin', 'skin');
-  }
-  reg(taper([0, 1.4, -0.005], [0, 1.58, -0.005], 0.058, 0.058, M.skin), 'skin', 'skin');
-  {
-    const profile = [
-      [0.001, 0.86], [0.12, 0.87], [0.17, 0.9], [0.185, 0.95], [0.175, 1.01], [0.155, 1.07], [0.152, 1.12],
-      [0.165, 1.2], [0.18, 1.28], [0.188, 1.35], [0.185, 1.4], [0.16, 1.435], [0.1, 1.455], [0.06, 1.46], [0.001, 1.46],
-    ].map(([r, y]) => new THREE.Vector2(r, y));
-    const geo = new THREE.LatheGeometry(profile, 56);
-    geo.scale(1, 1, 0.62);
-    reg(new THREE.Mesh(geo, M.skin), 'skin', 'skin');
-  }
-  {
-    const sh = ellipsoidBetween([-0.19, 1.425, -0.005], [0.19, 1.425, -0.005], 0.055, M.skin, 0.05);
-    reg(sh, 'skin', 'skin');
-  }
-  for (const s of sides) {
-    const S = joint('shoulder', s), E = joint('elbow', s), W = joint('wrist', s), H = joint('hand', s);
-    const Hp = joint('hip', s), K = joint('knee', s), A = joint('ankle', s);
-    const sd = sideName(s);
-    reg(ellipsoidAt(mx([0.072, 0.91, -0.05], s), 0.078, 0.082, 0.066, M.skin), 'skin', 'skin', sd);
-    reg(ellipsoidAt(S, 0.055, 0.055, 0.055, M.skin), 'skin', 'skin', sd);
-    reg(taper(S, E, 0.053, 0.042, M.skin), 'skin', 'skin', sd);
-    reg(ellipsoidAt(E, 0.0414, 0.0414, 0.0414, M.skin), 'skin', 'skin', sd);
-    reg(taper(E, W, 0.042, 0.029, M.skin), 'skin', 'skin', sd);
-    reg(ellipsoidBetween(add3(W, [0, 0.015, 0]), add3(H, [0.004 * s, -0.03, 0]), 0.034, M.skin, 0.016), 'skin', 'skin', sd);
-    reg(ellipsoidAt(Hp, 0.085, 0.085, 0.08, M.skin), 'skin', 'skin', sd);
-    reg(taper(Hp, K, 0.086, 0.058, M.skin), 'skin', 'skin', sd);
-    reg(ellipsoidAt(K, 0.0572, 0.0572, 0.0572, M.skin), 'skin', 'skin', sd);
-    reg(taper(K, A, 0.058, 0.036, M.skin), 'skin', 'skin', sd);
-    reg(ellipsoidAt(A, 0.0354, 0.0354, 0.0354, M.skin), 'skin', 'skin', sd);
-    {
-      const foot = ellipsoidBetween(mx([0.105, 0.034, -0.05], s), mx([0.112, 0.026, 0.165], s), 0.044, M.skin, 0.03);
-      reg(foot, 'skin', 'skin', sd);
+  /** Duhovka a zornice na přední ploše očních koulí. */
+  addIrises() {
+    const iris = new THREE.MeshPhysicalMaterial({ color: 0x5a3f2a, roughness: 0.3, clearcoat: 1, clearcoatRoughness: 0.05 });
+    const pupil = new THREE.MeshBasicMaterial({ color: 0x0b0b0b });
+    const eyes = this.layers.skin.children.filter((m) => m.userData.group === 'eye');
+    // Oční koule jsou v jednom meshi – rozdělit vrcholy na levé a pravé oko.
+    const boxes = [new THREE.Box3(), new THREE.Box3()];
+    const v = new THREE.Vector3();
+    for (const eye of eyes) {
+      eye.updateMatrixWorld(true);
+      const pos = eye.geometry.attributes.position;
+      for (let i = 0; i < pos.count; i++) {
+        v.fromBufferAttribute(pos, i).applyMatrix4(eye.matrixWorld);
+        boxes[v.x < 0 ? 0 : 1].expandByPoint(v);
+      }
     }
-    reg(ellipsoidAt(mx([0.086, 1.655, -0.005], s), 0.012, 0.03, 0.02, M.skin), 'skin', 'skin', sd);
-  }
-
-  // ---------------- SVALY ----------------
-  for (const s of sides) {
-    const sd = sideName(s);
-    const P = (p) => mx(p, s);
-    reg(ellipsoidAt(P([0.195, 1.395, 0.0]), 0.04, 0.072, 0.048, M.muscle, [0, 0, s * 0.25]), 'muscles', 'deltoid', sd);
-    reg(ellipsoidAt(P([0.075, 1.33, 0.058]), 0.072, 0.052, 0.026, M.muscle, [0, 0, s * -0.2]), 'muscles', 'pec', sd);
-    reg(ellipsoidBetween(P([0.212, 1.34, 0.012]), P([0.252, 1.165, 0.014]), 0.022, M.muscle), 'muscles', 'biceps', sd);
-    reg(ellipsoidBetween(P([0.203, 1.35, -0.016]), P([0.25, 1.16, -0.022]), 0.023, M.muscle), 'muscles', 'triceps', sd);
-    reg(ellipsoidBetween(P([0.262, 1.1, 0.012]), P([0.302, 0.915, 0.014]), 0.02, M.muscle), 'muscles', 'flexors', sd);
-    reg(ellipsoidBetween(P([0.272, 1.1, -0.02]), P([0.307, 0.915, -0.008]), 0.019, M.muscle), 'muscles', 'extensors', sd);
-    reg(ellipsoidAt(P([0.033, 1.13, 0.07]), 0.032, 0.15, 0.018, M.muscle), 'muscles', 'rectus', sd);
-    reg(ellipsoidAt(P([0.105, 1.1, 0.03]), 0.03, 0.09, 0.03, M.muscle), 'muscles', 'obliques', sd);
-    reg(ellipsoidAt(P([0.06, 1.33, -0.064]), 0.072, 0.1, 0.022, M.muscle), 'muscles', 'trap', sd);
-    reg(ellipsoidBetween(P([0.035, 1.47, -0.03]), P([0.14, 1.428, -0.022]), 0.014, M.muscle), 'muscles', 'trapUpper', sd);
-    reg(ellipsoidAt(P([0.055, 1.3, -0.072]), 0.032, 0.05, 0.011, M.muscle), 'muscles', 'rhomboid', sd);
-    reg(ellipsoidAt(P([0.08, 1.2, -0.048]), 0.045, 0.1, 0.018, M.muscle, [0, 0, s * 0.15]), 'muscles', 'lat', sd);
-    reg(ellipsoidBetween(P([0.028, 0.98, -0.064]), P([0.028, 1.36, -0.074]), 0.017, M.muscle), 'muscles', 'erector', sd);
-    reg(ellipsoidBetween(P([0.022, 1.425, 0.043]), P([0.055, 1.565, -0.01]), 0.012, M.muscle), 'muscles', 'scm', sd);
-    reg(ellipsoidBetween(P([0.06, 1.42, -0.05]), P([0.165, 1.435, -0.008]), 0.011, M.muscle), 'muscles', 'rotator', sd);
-    reg(ellipsoidAt(P([0.07, 0.915, -0.064]), 0.064, 0.07, 0.04, M.muscle), 'muscles', 'gluteMax', sd);
-    reg(ellipsoidAt(P([0.125, 0.975, -0.025]), 0.033, 0.05, 0.042, M.muscle), 'muscles', 'gluteMed', sd);
-    reg(ellipsoidBetween(P([0.098, 0.88, 0.025]), P([0.1, 0.56, 0.035]), 0.04, M.muscle), 'muscles', 'quad', sd);
-    reg(ellipsoidBetween(P([0.09, 0.85, -0.028]), P([0.1, 0.57, -0.022]), 0.036, M.muscle), 'muscles', 'ham', sd);
-    reg(ellipsoidBetween(P([0.045, 0.86, 0.005]), P([0.085, 0.62, 0.0]), 0.028, M.muscle), 'muscles', 'adductor', sd);
-    reg(ellipsoidBetween(P([0.1, 0.47, -0.015]), P([0.105, 0.23, -0.015]), 0.03, M.muscle), 'muscles', 'gastro', sd);
-    reg(ellipsoidBetween(P([0.112, 0.45, 0.022]), P([0.103, 0.14, 0.02]), 0.014, M.muscle), 'muscles', 'tibAnt', sd);
-    reg(capsule(P([0.105, 0.24, -0.028]), P([0.105, 0.04, -0.038]), 0.007, M.tendon), 'muscles', 'achilles', sd);
-  }
-
-  // ---------------- KOSTI ----------------
-  reg(ellipsoidAt([0, 1.665, 0], 0.075, 0.095, 0.09, M.bone), 'bones', 'skull');
-  reg(ellipsoidAt([0, 1.585, 0.035], 0.05, 0.025, 0.05, M.bone), 'bones', 'mandible');
-
-  // Páteř
-  const spineCurve = new THREE.CatmullRomCurve3(
-    [[0, 0.99, -0.056], [0, 1.08, -0.05], [0, 1.18, -0.065], [0, 1.3, -0.075], [0, 1.4, -0.06], [0, 1.47, -0.035], [0, 1.56, -0.03]].map(V),
-  );
-  const VERT_COUNT = 24;
-  for (let i = 0; i < VERT_COUNT; i++) {
-    const t = (i + 0.5) / VERT_COUNT;
-    const p = spineCurve.getPointAt(t);
-    const tan = spineCurve.getTangentAt(t);
-    let key, label, r, h;
-    if (i < 5) { key = 'vertL'; label = `L${5 - i}`; r = 0.021; h = 0.017; }
-    else if (i < 17) { key = 'vertTh'; label = `Th${17 - i}`; r = 0.016; h = 0.016; }
-    else { key = 'vertC'; label = `C${24 - i}`; r = 0.012; h = 0.014; }
-    const body = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 16), M.bone);
-    body.position.copy(p);
-    body.quaternion.setFromUnitVectors(UP, tan);
-    const extra = { label };
-    reg(body, 'bones', key, null, extra);
-    const proc = capsule([0, p.y, p.z - r * 0.6], [0, p.y - h * 0.6, p.z - r - 0.018], 0.004, M.bone);
-    reg(proc, 'bones', key, null, extra);
-  }
-  reg(ellipsoidAt([0, 0.94, -0.07], 0.035, 0.055, 0.016, M.bone, [-0.35, 0, 0]), 'bones', 'sacrum');
-
-  // Hrudní koš
-  const ribW = [0.09, 0.11, 0.125, 0.135, 0.14, 0.145, 0.145, 0.14, 0.135, 0.13, 0.12, 0.11];
-  for (const s of sides) {
-    const sd = sideName(s);
-    for (let k = 0; k < 12; k++) {
-      const y0 = 1.395 - k * 0.022;
-      const w = ribW[k];
-      const pts = [
-        [0.015, y0, -0.068],
-        [w * 0.6, y0 + 0.004, -0.085],
-        [w, y0 - 0.02, -0.03],
-        [w * 0.9, y0 - 0.045, 0.045],
-      ];
-      if (k < 7) pts.push([w * 0.5, y0 - 0.06, 0.088], [0.018, y0 - 0.055 - k * 0.004, 0.095]);
-      else if (k < 10) pts.push([w * 0.55, y0 - 0.075, 0.08]);
-      const rib = tube(pts.map((p) => mx(p, s)), 0.0055, M.bone, 48);
-      reg(rib, 'bones', 'rib', sd, { label: `${k + 1}. žebro` });
+    for (const box of boxes) {
+      if (box.isEmpty()) continue;
+      const c = box.getCenter(new THREE.Vector3());
+      const r = (box.max.x - box.min.x) / 2;
+      const disk = new THREE.Mesh(new THREE.CircleGeometry(r * 0.48, 32), iris);
+      disk.position.set(c.x, c.y, box.max.z + 0.0004);
+      const dot = new THREE.Mesh(new THREE.CircleGeometry(r * 0.2, 24), pupil);
+      dot.position.z = 0.0003;
+      disk.add(dot);
+      disk.raycast = () => {};
+      dot.raycast = () => {};
+      this.layers.skin.add(disk);
     }
-    reg(tube([[0.02, 1.425, 0.085], [0.09, 1.435, 0.075], [0.175, 1.445, 0.0]].map((p) => mx(p, s)), 0.007, M.bone, 24), 'bones', 'clavicle', sd);
-    reg(ellipsoidAt(mx([0.105, 1.33, -0.083], s), 0.048, 0.065, 0.01, M.bone, [0, s * -0.35, 0]), 'bones', 'scapula', sd);
-    reg(ellipsoidAt(mx([0.1, 0.99, -0.015], s), 0.055, 0.058, 0.012, M.bone, [0, s * 0.7, s * -0.25]), 'bones', 'ilium', sd);
-  }
-  reg(ellipsoidBetween([0, 1.4, 0.094], [0, 1.24, 0.097], 0.013, M.bone, 0.006), 'bones', 'sternum');
-  {
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.072, 0.013, 10, 40), M.bone);
-    ring.position.set(0, 0.905, -0.005);
-    ring.rotation.x = Math.PI / 2 - 0.35;
-    ring.scale.set(1, 0.75, 1);
-    reg(ring, 'bones', 'pelvicRing');
-  }
-  for (const s of sides) {
-    const sd = sideName(s);
-    const S = joint('shoulder', s), E = joint('elbow', s), W = joint('wrist', s), H = joint('hand', s);
-    const Hp = joint('hip', s), K = joint('knee', s), A = joint('ankle', s);
-    reg(ellipsoidAt(add3(S, [-0.008 * s, -0.005, 0]), 0.022, 0.022, 0.022, M.bone), 'bones', 'humerus', sd);
-    reg(capsule(S, E, 0.012, M.bone), 'bones', 'humerus', sd);
-    reg(capsule(add3(E, [0.008 * s, -0.01, 0.006]), add3(W, [0.01 * s, 0, 0.005]), 0.008, M.bone), 'bones', 'radius', sd);
-    reg(capsule(add3(E, [-0.006 * s, 0.005, -0.012]), add3(W, [-0.008 * s, 0, -0.003]), 0.008, M.bone), 'bones', 'ulna', sd);
-    reg(ellipsoidBetween(add3(W, [0, 0.005, 0]), add3(H, [0.004 * s, -0.03, 0]), 0.026, M.bone, 0.008), 'bones', 'handBones', sd);
-    reg(ellipsoidAt(Hp, 0.023, 0.023, 0.023, M.bone), 'bones', 'femur', sd);
-    reg(capsule(add3(Hp, [0.004 * s, -0.01, 0]), K, 0.016, M.bone), 'bones', 'femur', sd);
-    reg(ellipsoidAt(add3(K, [0, 0.008, 0.045]), 0.02, 0.025, 0.01, M.bone), 'bones', 'patella', sd);
-    reg(capsule(add3(K, [0, -0.005, 0]), A, 0.014, M.bone), 'bones', 'tibia', sd);
-    reg(capsule(add3(K, [0.024 * s, -0.03, -0.012]), add3(A, [0.022 * s, -0.005, -0.008]), 0.006, M.bone), 'bones', 'fibula', sd);
-    reg(ellipsoidBetween(mx([0.105, 0.035, -0.04], s), mx([0.111, 0.02, 0.15], s), 0.032, M.bone, 0.016), 'bones', 'footBones', sd);
   }
 
-  // ---------------- CÉVY ----------------
-  reg(ellipsoidAt([0.025, 1.27, 0.035], 0.045, 0.055, 0.04, M.heart, [0, 0, -0.5]), 'vessels', 'heart');
-  reg(tube([[0.02, 1.29, 0.04], [0.01, 1.355, 0.03], [-0.01, 1.365, -0.005], [0.0, 1.3, -0.035], [0.008, 1.15, -0.035], [0.005, 1.0, -0.03]], 0.0105, M.artery), 'vessels', 'aorta');
-  reg(tube([[-0.005, 1.4, 0.022], [-0.012, 1.32, 0.04], [-0.015, 1.27, 0.03], [-0.016, 1.12, -0.022], [-0.016, 1.0, -0.025]], 0.009, M.vein), 'vessels', 'cava');
-  for (const s of sides) {
-    const sd = sideName(s);
-    const P = (arr) => arr.map((p) => mx(p, s));
-    reg(tube(P([[0.012, 1.36, 0.025], [0.028, 1.45, 0.03], [0.034, 1.55, 0.012], [0.04, 1.62, 0.0]]), 0.005, M.artery), 'vessels', 'carotid', sd);
-    reg(tube(P([[0.045, 1.61, -0.005], [0.046, 1.5, 0.028], [0.026, 1.41, 0.03]]), 0.005, M.vein), 'vessels', 'jugular', sd);
-    reg(tube(P([[0.01, 1.36, 0.02], [0.1, 1.415, 0.02], [0.185, 1.38, 0.0]]), 0.005, M.artery), 'vessels', 'subclavian', sd);
-    reg(tube(P([[0.185, 1.38, 0.0], [0.232, 1.25, 0.022], [0.256, 1.135, 0.026]]), 0.0045, M.artery), 'vessels', 'brachialA', sd);
-    reg(tube(P([[0.256, 1.135, 0.026], [0.288, 1.0, 0.03], [0.316, 0.885, 0.024]]), 0.0035, M.artery), 'vessels', 'radialA', sd);
-    reg(tube(P([[0.256, 1.135, 0.022], [0.276, 1.0, 0.018], [0.298, 0.885, 0.018]]), 0.0035, M.artery), 'vessels', 'ulnarA', sd);
-    reg(tube(P([[0.175, 1.405, 0.045], [0.235, 1.26, 0.038], [0.272, 1.1, 0.033], [0.31, 0.92, 0.026]]), 0.0035, M.vein), 'vessels', 'cephalic', sd);
-    reg(tube(P([[0.004, 1.0, -0.028], [0.04, 0.96, -0.005], [0.07, 0.92, 0.02]]), 0.0065, M.artery), 'vessels', 'iliacA', sd);
-    reg(tube(P([[0.07, 0.92, 0.02], [0.088, 0.86, 0.04], [0.083, 0.7, 0.025], [0.092, 0.58, -0.025]]), 0.0055, M.artery), 'vessels', 'femoralA', sd);
-    reg(tube(P([[0.092, 0.58, -0.025], [0.1, 0.51, -0.035], [0.098, 0.44, -0.03]]), 0.005, M.artery), 'vessels', 'poplitealA', sd);
-    reg(tube(P([[0.098, 0.44, -0.03], [0.095, 0.3, -0.028], [0.092, 0.1, -0.03], [0.1, 0.03, 0.04]]), 0.004, M.artery), 'vessels', 'tibialA', sd);
-    reg(tube(P([[0.06, 0.92, 0.025], [0.078, 0.86, 0.042], [0.072, 0.7, 0.02], [0.085, 0.58, -0.03]]), 0.0055, M.vein), 'vessels', 'femoralV', sd);
-    reg(tube(P([[0.065, 0.885, 0.05], [0.05, 0.7, 0.01], [0.07, 0.5, -0.02], [0.08, 0.3, 0.005], [0.086, 0.09, 0.028]]), 0.0035, M.vein), 'vessels', 'saphena', sd);
+  /** Načte vrstvu (pokud ještě není). onProgress(0..1) */
+  ensureLayer(layer, onProgress) {
+    if (this.loaded[layer]) return Promise.resolve();
+    if (this.pending[layer]) return this.pending[layer];
+    this.pending[layer] = new Promise((resolve, reject) => {
+      this.loader.load(MODEL_URL(layer), (gltf) => {
+        const meshes = [];
+        gltf.scene.traverse((o) => { if (o.isMesh) meshes.push(o); });
+        for (const o of meshes) {
+          const id = o.parent && o.parent.name && !o.name ? o.parent.name : o.name;
+          const meta = this.meta.parts[id] || { n: id, la: '', g: 'ligament' };
+          o.geometry.computeVertexNormals();
+          o.geometry.computeBoundingSphere();
+          o.material = makeMaterial(layer, meta, id);
+          // zachovat transformaci uzlu (kvantizace) a přenést mesh do vrstvy
+          o.updateWorldMatrix(true, false);
+          o.matrixWorld.decompose(o.position, o.quaternion, o.scale);
+          this.register(o, layer, meta, id);
+        }
+        if (layer === 'skin') this.addIrises();
+        this.loaded[layer] = true;
+        delete this.pending[layer];
+        this.onLayerLoaded?.(layer);
+        resolve();
+      }, (e) => { if (e.total) onProgress?.(e.loaded / e.total); }, (err) => {
+        delete this.pending[layer];
+        reject(err);
+      });
+    });
+    return this.pending[layer];
   }
-
-  // ---------------- NERVY ----------------
-  reg(ellipsoidAt([0, 1.675, -0.005], 0.068, 0.07, 0.085, M.brain), 'nerves', 'brain');
-  {
-    const cordPts = [];
-    for (let i = 0; i <= 20; i++) {
-      const p = spineCurve.getPointAt(i / 20);
-      cordPts.push([0, p.y, p.z - 0.012]);
-    }
-    cordPts.push([0, 1.61, -0.01]);
-    reg(tube(cordPts, 0.0055, M.nerve, 80), 'nerves', 'spinalCord');
-  }
-  for (const s of sides) {
-    const sd = sideName(s);
-    const P = (arr) => arr.map((p) => mx(p, s));
-    reg(tube(P([[0.012, 1.48, -0.04], [0.08, 1.43, -0.005], [0.17, 1.375, -0.005]]), 0.005, M.nerve), 'nerves', 'plexus', sd);
-    reg(tube(P([[0.17, 1.375, 0.0], [0.234, 1.25, 0.025], [0.257, 1.13, 0.031], [0.29, 0.98, 0.028], [0.316, 0.87, 0.022], [0.33, 0.8, 0.02]]), 0.0032, M.nerve), 'nerves', 'median', sd);
-    reg(tube(P([[0.17, 1.375, -0.008], [0.222, 1.25, -0.012], [0.243, 1.13, -0.03], [0.275, 1.0, -0.004], [0.3, 0.87, 0.012], [0.31, 0.8, 0.012]]), 0.0032, M.nerve), 'nerves', 'ulnarN', sd);
-    reg(tube(P([[0.17, 1.375, -0.015], [0.215, 1.28, -0.038], [0.268, 1.17, 0.002], [0.298, 1.0, 0.0], [0.323, 0.88, -0.004]]), 0.0032, M.nerve), 'nerves', 'radialN', sd);
-    reg(tube(P([[0.015, 0.96, -0.07], [0.068, 0.88, -0.08], [0.09, 0.72, -0.05], [0.1, 0.56, -0.038]]), 0.0058, M.nerve), 'nerves', 'sciatic', sd);
-    reg(tube(P([[0.1, 0.56, -0.038], [0.1, 0.4, -0.036], [0.1, 0.15, -0.032], [0.1, 0.06, -0.022], [0.105, 0.02, 0.05]]), 0.0038, M.nerve), 'nerves', 'tibialN', sd);
-    reg(tube(P([[0.1, 0.56, -0.038], [0.126, 0.48, -0.012], [0.122, 0.4, 0.022], [0.112, 0.15, 0.028], [0.11, 0.04, 0.08]]), 0.0032, M.nerve), 'nerves', 'peroneal', sd);
-    reg(tube(P([[0.028, 1.02, -0.035], [0.068, 0.93, 0.03], [0.083, 0.85, 0.05], [0.09, 0.74, 0.048]]), 0.0038, M.nerve), 'nerves', 'femoralN', sd);
-  }
-
-  return { root, layers, pickables, materials: M };
 }
