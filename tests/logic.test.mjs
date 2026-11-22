@@ -74,3 +74,61 @@ test('data cviků jsou úplná a ID unikátní', () => {
 test('red flags existují pro každou oblast', () => {
   for (const r of Object.keys(REGIONS)) assert.ok(redFlags(r).length >= 4);
 });
+
+// ---------------------------------------------------------------------------
+// Dermatomy a nervy
+// ---------------------------------------------------------------------------
+import { dermatomeAt, DERMATOME_ORDER } from '../js/dermatomes.js';
+import { FINGERS, TOES, LM } from '../js/landmarks.js';
+import { NERVE_INFO, spinalLevels } from '../js/nerves.js';
+
+test('dermatomy typických míst', () => {
+  const tip = (f) => f.tip;
+  assert.equal(dermatomeAt(tip(FINGERS.left[0])).seg, 'C6');      // palec
+  assert.equal(dermatomeAt(tip(FINGERS.left[2])).seg, 'C7');      // prostředník
+  assert.equal(dermatomeAt(tip(FINGERS.right[4])).seg, 'C8');     // malík pravé ruky
+  assert.equal(dermatomeAt([0.03, 0.99, 0.13]).seg, 'Th10');       // pupek
+  assert.equal(dermatomeAt([0.0, 1.22, 0.13]).seg, 'Th4');         // výška bradavek
+  const t2 = TOES.left[2];
+  assert.equal(dermatomeAt([t2.base[0], t2.base[1] + 0.012, t2.base[2]]).seg, 'L5');  // nárt
+  const malLat = LM.malleolus_lat_left;
+  assert.equal(dermatomeAt([malLat[0] + 0.03, 0.03, malLat[2] + 0.05]).seg, 'S1');  // zevní hrana nohy
+  assert.equal(dermatomeAt([0.03, 0.25, 0.0]).seg, 'L4');          // vnitřní strana bérce
+  assert.equal(dermatomeAt([0.14, 0.62, 0.02]).nerve, 'latFemCut'); // zevní strana stehna
+});
+
+test('dermatom každého bodu je ze známého seznamu a nerv existuje', () => {
+  for (let y = 0.02; y < 1.65; y += 0.03) {
+    for (let x = -0.3; x <= 0.3; x += 0.05) {
+      for (const z of [-0.1, 0, 0.1]) {
+        const d = dermatomeAt([x, y, z]);
+        assert.ok(DERMATOME_ORDER.includes(d.seg), `${d.seg} @ ${x},${y},${z}`);
+        if (d.nerve) assert.ok(NERVE_INFO[d.nerve], d.nerve);
+      }
+    }
+  }
+});
+
+test('míšní nervy C1–S4 (29 párů) seřazené shora dolů', () => {
+  const lv = spinalLevels();
+  assert.equal(lv.length, 8 + 12 + 5 + 4);
+  for (let i = 1; i < lv.length; i++) assert.ok(lv[i].y < lv[i - 1].y, `${lv[i].seg} pod ${lv[i - 1].seg}`);
+});
+
+// ---------------------------------------------------------------------------
+// Animace cviků
+// ---------------------------------------------------------------------------
+import { ANIMS, BASES } from '../js/exercise-anims.js';
+
+const POSE_KEYS = new Set(['root', 'breath', 'lumbar', 'thoracic', 'neck', 'head', 'lScap', 'rScap', 'lShoulder', 'rShoulder',
+  'lElbow', 'rElbow', 'lWrist', 'rWrist', 'lFingers', 'rFingers', 'lHip', 'rHip', 'lKnee', 'rKnee', 'lAnkle', 'rAnkle']);
+
+test('každý cvik má animaci se známou výchozí polohou a klouby', () => {
+  for (const e of EXERCISES) {
+    const a = ANIMS[e.id];
+    assert.ok(a, `chybí animace ${e.id}`);
+    assert.ok(BASES[a.base], `${e.id}: neznámá poloha ${a.base}`);
+    assert.ok(a.keys.length >= 2, `${e.id}: málo klíčových póz`);
+    for (const k of a.keys) for (const j of Object.keys(k.p)) assert.ok(POSE_KEYS.has(j), `${e.id}: neznámý kloub ${j}`);
+  }
+});

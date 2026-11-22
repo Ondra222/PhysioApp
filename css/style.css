@@ -134,6 +134,10 @@ body[data-mode="mark"] #viewport canvas { cursor: crosshair; }
 .btn.ghost { background: #fff; color: var(--danger); border: 1px solid var(--line); }
 .btn:hover { filter: brightness(1.05); }
 
+.innervation { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin: 12px 0; background: #fffdf3; }
+.innervation .inn-head { display: flex; gap: 8px; align-items: center; font-size: 14px; }
+.innervation p { margin: 6px 0; line-height: 1.45; }
+.btn.secondary { background: #fff; color: var(--text); border: 1px solid var(--line); padding: 7px 12px; font-size: 13px; margin-top: 6px; }
 .advice { background: #f4f8f9; border-left: 3px solid var(--accent); border-radius: 8px; padding: 10px 12px; font-size: 14px; line-height: 1.5; margin: 12px 0; }
 .warn { background: #fff3f2; border-left: 3px solid var(--danger); border-radius: 8px; padding: 10px 12px; font-size: 14px; line-height: 1.5; margin: 12px 0; }
 
@@ -160,6 +164,14 @@ details.flags ul { margin: 8px 0 0; padding-left: 18px; line-height: 1.5; }
 .exercise[open] summary::after { transform: rotate(180deg); }
 .exercise ol { margin: 0; padding: 0 16px 12px 34px; line-height: 1.5; font-size: 14px; }
 .exercise .caution { margin: 0 14px 12px; font-size: 13px; color: #8a4b00; background: #fff6e5; padding: 8px 10px; border-radius: 8px; }
+.play-ico { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 9px; margin-right: 8px; vertical-align: 2px; }
+.anim-slot { margin: 0 12px 10px; }
+.anim-wrap { position: relative; border-radius: 10px; overflow: hidden; background: #f1f5f7; touch-action: none; }
+.anim-canvas { display: block; width: 100%; }
+.anim-label { position: absolute; left: 10px; top: 8px; font-size: 13px; font-weight: 600; color: var(--text); background: rgba(255,255,255,.85); border-radius: 999px; padding: 3px 10px; pointer-events: none; }
+.anim-label:empty { display: none; }
+.anim-btn { position: absolute; right: 8px; bottom: 8px; width: 34px; height: 34px; border-radius: 50%; border: 0; background: rgba(28,42,51,.75); color: #fff; font-size: 12px; }
+.anim-hint { position: absolute; left: 10px; bottom: 8px; font-size: 11px; color: var(--muted); pointer-events: none; }
 .tag-gentle { font-size: 11px; color: var(--accent); background: var(--accent-soft); padding: 2px 6px; border-radius: 6px; margin-left: 6px; font-weight: 600; }
 
 .only-mobile { display: none; }

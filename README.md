@@ -9,7 +9,14 @@ místo, kde cítí bolest, tlak nebo brnění** – aplikace pak nabídne vhodn�
 ## Funkce
 
 - **Anatomický 3D model** z vědecké databáze BodyParts3D – ~780 skutečných struktur: kůže, 438 svalů a šlach,
-  248 kostí, chrupavek a plotének, cévy trupu a srdce, mozek. Periferní nervy, mícha a cévy končetin jsou dokreslené.
+  248 kostí, chrupavek a plotének, cévy trupu a srdce, mozek. Cévy končetin jsou dokreslené.
+- **Nervová soustava** – mícha, 29 párů míšních nervů (C1–S4), které se sbíhají do krční, pažní, bederní a křížové
+  pleteně, mezižeberní nervy, sympatický kmen, ~25 periferních nervů končetin, hlavové nervy (trojklaný, lícní,
+  bloudivý, přídatný) a prstové nervy. Každý nerv má popisek s míšními kořeny.
+- **Dermatomy** – přepínač obarví kůži podle míšních segmentů. U každé potíže aplikace ukáže dermatom a kožní nerv
+  daného místa (u brnění jako „možný zdroj“) a tlačítkem nerv zvýrazní na modelu.
+- **Animace cviků** – kloubová 3D figurína předvádí všech 47 cviků včetně pomůcek (židle, stůl, zeď, guma, míček…),
+  s popisem fáze („výdrž 5 s“); animaci lze pozastavit a otáčet.
 - **Realistické zobrazení** (Three.js) – fyzikálně založené materiály, osvětlení prostředím, filmové tónování,
   vržené stíny v režimu „Vysoká kvalita“.
 - Otáčení tažením, přiblížení kolečkem / dvěma prsty, posun pravým tlačítkem.
@@ -55,7 +62,12 @@ node --test tests/logic.test.mjs
 index.html          rozvržení stránky
 css/style.css       vzhled (desktop i mobil)
 js/main.js          scéna, ovládání, výběr, panely, ukládání
-js/body.js          načítání modelu po vrstvách, materiály, dokreslené nervy a cévy
+js/body.js          načítání modelu po vrstvách, materiály, dokreslené cévy
+js/nerves.js        nervová soustava (dráhy, popisky, míšní segmenty)
+js/dermatomes.js    mapa dermatomů a kožních nervů
+js/mannequin.js     kloubová figurína pro animace
+js/exercise-anims.js klíčové pózy všech cviků
+js/anim-player.js   přehrávač animací v kartě cviku
 js/landmarks.js     orientační body kostry (vygenerované z modelu)
 js/regions.js       tělesné oblasti a určení oblasti z bodu na postavě
 models/             anatomické modely (GLB) a české popisky (parts.json)
@@ -70,7 +82,9 @@ tests/              testy logiky (node:test)
 - **Nové cvičení** – přidejte objekt do `EXERCISES` v `js/exercises.js` (oblasti, typy potíží, postup, dávkování,
   `gentle: true` pro šetrné cviky). Test ověří, že data jsou úplná.
 - **Názvy a popisy struktur** – `tools/names_cs.py` (po úpravě spustit znovu, viz `tools/README.md`).
-- **Nervy a cévy končetin** – dráhy jsou ve funkci `buildExtras()` v `js/body.js`.
+- **Nervy** – dráhy jsou v `js/nerves.js`, cévy končetin ve funkci `buildExtras()` v `js/body.js`.
+- **Animace cviku** – přidejte záznam do `ANIMS` v `js/exercise-anims.js` (výchozí poloha, klíčové pózy jako úhly
+  kloubů ve stupních, pomůcky). Význam úhlů je popsán v hlavičce `js/mannequin.js`.
 - **Oblasti** – hranice oblastí jsou v `detectRegion()` v `js/regions.js`.
 
 ## Licence a zdroje
