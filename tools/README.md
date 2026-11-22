@@ -19,6 +19,7 @@ cd tools
 python3 select_parts.py        # rozdělení částí do vrstev  -> .work/selected.json
 python3 names_cs.py            # české a latinské názvy      -> ../models/parts.json
 python3 build_glb.py           # zjednodušení + GLB po vrstvách -> ../models/*.glb
+python3 build_figure.py        # odlehčená postava pro animace -> ../models/figure.glb
 python3 landmarks.py && python3 landmarks2.py && python3 landmarks3.py && python3 make_landmarks_js.py   # klouby, prsty, žebra -> ../js/landmarks.js
 ```
 
