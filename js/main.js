@@ -4,6 +4,9 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { Body, LAYER_DEFS } from './body.js';
 import { detectRegion, REGIONS, SIDES } from './regions.js';
 import { SYMPTOMS, SYMPTOM_ADVICE, selectExercises, redFlags } from './exercises.js';
+import { dermatomeAt, dermatomeColor } from './dermatomes.js';
+import { NERVE_INFO, segmentInfo } from './nerves.js';
+import { ExercisePlayer, hasAnimation } from './anim-player.js';
 
 // ---------------------------------------------------------------------------
 // Stav a ukládání
@@ -12,6 +15,7 @@ const STORAGE_KEY = 'physioapp.v2';
 const LARGE_SCREEN = window.matchMedia('(min-width: 821px) and (pointer: fine)').matches;
 const state = {
   hq: LARGE_SCREEN,
+  derm: false,
   mode: 'explore',
   symptom: 'bolest',
   layers: { skin: true, muscles: true, bones: false, vessels: false, nerves: false },
@@ -50,7 +54,7 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = THREE.PCFShadowMap;
 viewport.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
@@ -175,22 +179,37 @@ function renderLayerList() {
     });
     list.appendChild(label);
   }
+  const dt = $('#derm-toggle');
+  dt.checked = state.derm;
+  dt.onchange = async () => {
+    state.derm = dt.checked;
+    if (state.derm) {
+      state.layers.skin = true;
+      await loadLayer('skin');
+      state.skinOpacity = 1;
+      $('#skin-opacity').value = 1;
+      renderLayerList();
+    }
+    applyLayers();
+    applyDermatomes();
+    applyQuality();
+  };
   const hq = $('#hq-toggle');
   hq.checked = state.hq;
-  hq.addEventListener('change', () => {
+  hq.onchange = () => {
     state.hq = hq.checked;
     applyQuality();
     save();
-  });
+  };
   const slider = $('#skin-opacity');
   slider.value = state.skinOpacity;
-  slider.addEventListener('input', () => {
+  slider.oninput = () => {
     const wasOpaque = state.skinOpacity >= 1;
     state.skinOpacity = parseFloat(slider.value);
     applyLayers();
     if (wasOpaque !== (state.skinOpacity >= 1)) applyQuality();
     save();
-  });
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -264,15 +283,103 @@ function markerAt(e) {
 }
 
 let selectedMesh = null;
-function highlight(mesh) {
-  if (selectedMesh && selectedMesh.material.emissive) {
-    selectedMesh.material.emissive.setHex(selectedMesh.userData.baseEmissive ?? 0);
+let selectedMeshes = [];
+// color: emisní záře; paint: volitelně i přebarvení (pro výrazné zvýraznění nervů)
+function highlight(mesh, color = 0x2f6f62, paint = null) {
+  for (const m of selectedMeshes) {
+    if (m.material.emissive) m.material.emissive.setHex(m.userData.baseEmissive ?? 0);
+    if (m.userData.baseColor !== undefined) m.material.color.setHex(m.userData.baseColor);
   }
-  selectedMesh = mesh;
-  if (mesh && mesh.userData.layer !== 'skin' && mesh.material.emissive) {
-    if (mesh.userData.baseEmissive === undefined) mesh.userData.baseEmissive = mesh.material.emissive.getHex();
-    mesh.material.emissive.setHex(0x2f6f62);
+  selectedMeshes = (Array.isArray(mesh) ? mesh : mesh ? [mesh] : []).filter((m) => m.userData.layer !== 'skin' && m.material.emissive);
+  selectedMesh = selectedMeshes[0] || null;
+  for (const m of selectedMeshes) {
+    if (m.userData.baseEmissive === undefined) m.userData.baseEmissive = m.material.emissive.getHex();
+    m.material.emissive.setHex(color);
+    if (paint !== null) {
+      if (m.userData.baseColor === undefined) m.userData.baseColor = m.material.color.getHex();
+      m.material.color.setHex(paint);
+    }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Inervace místa (dermatom + kožní nerv)
+// ---------------------------------------------------------------------------
+function innervation(point) {
+  const p = Array.isArray(point) ? point : [point.x, point.y, point.z];
+  const d = dermatomeAt(p);
+  const side = p[0] < -0.025 ? 'prava' : p[0] > 0.025 ? 'leva' : null;
+  return { ...d, side };
+}
+
+function innervationHtml(inn, symptom) {
+  const segTxt = inn.seg.startsWith('V') ? `trojklaný nerv (${inn.seg})` : `kořen ${inn.seg}`;
+  const nerve = inn.nerve ? NERVE_INFO[inn.nerve] : null;
+  const title = symptom === 'brneni' ? 'Možný zdroj brnění' : 'Inervace tohoto místa';
+  const segDesc = inn.seg.startsWith('V') ? '' : segmentInfo(inn.seg);
+  let explain = '';
+  if (symptom === 'brneni') {
+    explain = inn.seg.startsWith('V') ? 'Brnění obličeje by měl vždy posoudit lékař.'
+      : `Brnění zde může vycházet z páteře (podráždění kořene ${inn.seg}, např. výhřezem ploténky nebo zúžením otvoru pro nerv)${nerve ? ` nebo z útlaku nervu po cestě – ${nerve[0].toLowerCase()}` : ''}.`;
+  }
+  return `<div class="innervation">
+    <div class="inn-head"><span class="dot" style="background:${dermatomeColor(inn.seg)}"></span><b>${title}</b></div>
+    <p class="kv">Dermatom: <b>${segTxt}</b>${nerve ? ` · kožní nerv: <b>${nerve[0]}</b>` : ''}</p>
+    ${explain ? `<p class="small">${explain}</p>` : ''}
+    ${segDesc ? `<p class="small muted">${inn.seg}: ${segDesc}</p>` : ''}
+    <button class="btn secondary" id="show-nerve">🟡 Ukázat nerv na modelu</button>
+  </div>`;
+}
+
+async function showNerve(inn, point) {
+  // nervy zapnout, svaly skrýt a kůži zprůhlednit, aby byl nerv vidět
+  state.layers.nerves = true;
+  state.layers.muscles = false;
+  state.skinOpacity = Math.min(state.skinOpacity, 0.2);
+  renderLayerList();
+  await loadLayer('nerves');
+  applyLayers();
+  applyQuality();
+  save();
+  if (point) focusPoint(point);
+  const sideOk = (m) => !inn.side || !m.userData.side || m.userData.side === inn.side;
+  const targets = body.layers.nerves.children.filter((m) => sideOk(m) && (
+    (inn.nerve && m.userData.nerveKey === inn.nerve)
+    || (m.userData.nerveKey === 'spinal' && m.userData.seg === inn.seg)
+    || ((m.userData.nerveKey === 'intercostal' || m.userData.nerveKey === 'subcostal') && m.userData.seg === inn.seg)));
+  highlight(targets, 0x0b5d3b, 0x22c55e);
+}
+
+function bindInnervation(inn, point) {
+  $('#show-nerve')?.addEventListener('click', () => showNerve(inn, point));
+}
+
+// Obarvení kůže podle dermatomů
+let dermColors = null;
+function applyDermatomes() {
+  const skin = body.layers.skin.children.find((m) => m.userData.group === 'skin');
+  if (!skin) return;
+  if (state.derm && !dermColors) {
+    skin.updateMatrixWorld(true);
+    const pos = skin.geometry.attributes.position;
+    const arr = new Float32Array(pos.count * 3);
+    const v = new THREE.Vector3();
+    const c = new THREE.Color();
+    const cache = {};
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(skin.matrixWorld);
+      const segName = dermatomeAt([v.x, v.y, v.z]).seg;
+      if (!cache[segName]) cache[segName] = c.setStyle(dermatomeColor(segName)).clone();
+      cache[segName].toArray(arr, i * 3);
+    }
+    dermColors = new THREE.BufferAttribute(arr, 3);
+    skin.geometry.setAttribute('color', dermColors);
+  }
+  if (!skin.userData.baseColor) skin.userData.baseColor = skin.material.color.getHex();
+  skin.material.vertexColors = state.derm;
+  skin.material.color.setHex(state.derm ? 0xffffff : skin.userData.baseColor);
+  skin.material.sheen = state.derm ? 0 : 0.35;
+  skin.material.needsUpdate = true;
 }
 
 function displayName(ud) {
@@ -449,6 +556,7 @@ function openInfo(html) {
   document.body.classList.add('info-open');
 }
 function closeInfo() {
+  player?.unmount();
   infoPanel.hidden = true;
   document.body.classList.remove('info-open');
   highlight(null);
@@ -468,23 +576,52 @@ function showStructure(ud, point, hits) {
     <h2 class="info-title">${displayName(ud)}</h2>
     ${ud.latin ? `<p class="latin">${ud.latin}</p>` : ''}
     <p class="desc">${ud.desc}</p>
+    ${ud.roots ? `<p class="kv">Míšní kořeny / původ: <b>${ud.roots}</b></p>` : ''}
     <p class="kv">Oblast: <b>${REGIONS[region].name}</b></p>
     ${under.length ? `<p class="kv">Pod kůží: <b>${under.join(', ')}</b></p>` : ''}
+    ${ud.layer === 'skin' && state.derm ? innervationHtml(innervation(point), null) : ''}
     <button class="btn" id="mark-here">📍 Mám tady potíže</button>
   `);
+  if (ud.layer === 'skin' && state.derm) bindInnervation(innervation(point), [point.x, point.y, point.z]);
   $('#mark-here').addEventListener('click', () => {
     setMode('mark');
     createComplaint(point, hits);
   });
 }
 
-function exerciseCard(ex) {
-  return `<details class="exercise">
-    <summary><span><span class="t">${ex.name}</span>${ex.gentle ? '<span class="tag-gentle">šetrné</span>' : ''}
+function exerciseCard(ex, open = false) {
+  const anim = hasAnimation(ex.id);
+  return `<details class="exercise" data-ex="${ex.id}" ${open ? 'open' : ''}>
+    <summary><span><span class="t">${anim ? '<span class="play-ico">▶</span>' : ''}${ex.name}</span>${ex.gentle ? '<span class="tag-gentle">šetrné</span>' : ''}
       <span class="d">${ex.dose}</span></span></summary>
+    ${anim ? '<div class="anim-slot"></div>' : ''}
     <ol>${ex.steps.map((s) => `<li>${s}</li>`).join('')}</ol>
     ${ex.caution ? `<p class="caution">⚠️ ${ex.caution}</p>` : ''}
   </details>`;
+}
+
+// Animace cviků – jeden sdílený přehrávač, vkládá se do právě otevřené karty
+let player = null;
+function bindExerciseCards() {
+  const cards = [...infoContent.querySelectorAll('details.exercise')];
+  const mountCard = (card) => {
+    const slot = card.querySelector('.anim-slot');
+    if (!slot) return;
+    player ||= new ExercisePlayer();
+    player.mount(slot, card.dataset.ex);
+  };
+  for (const card of cards) {
+    card.addEventListener('toggle', () => {
+      if (card.open) {
+        for (const other of cards) if (other !== card && other.open) other.open = false;
+        mountCard(card);
+      } else if (player?.container && card.contains(player.container)) {
+        player.unmount();
+      }
+    });
+  }
+  const first = cards.find((c) => c.open);
+  if (first) mountCard(first);
 }
 
 function openComplaint(id) {
@@ -520,6 +657,7 @@ function renderComplaint(c) {
     ${strong ? `<div class="warn"><b>Silné potíže.</b> Při intenzitě 7/10 a více doporučujeme nejdřív konzultaci s lékařem
       nebo fyzioterapeutem. Níže jsou jen nejšetrnější cviky.</div>` : ''}
     <div class="advice">${SYMPTOM_ADVICE[c.symptom]}</div>
+    ${innervationHtml(innervation(c.point), c.symptom)}
 
     <details class="flags">
       <summary>⚠️ Kdy nečekat a jít k lékaři</summary>
@@ -527,7 +665,7 @@ function renderComplaint(c) {
     </details>
 
     <h3 class="small muted">DOPORUČENÁ CVIČENÍ (${list.length})</h3>
-    ${list.length ? list.map(exerciseCard).join('') : '<p class="muted">Pro tuto kombinaci zatím nemáme vhodné cvičení. Obraťte se prosím na odborníka.</p>'}
+    ${list.length ? list.map((ex, i) => exerciseCard(ex, i === 0)).join('') : '<p class="muted">Pro tuto kombinaci zatím nemáme vhodné cvičení. Obraťte se prosím na odborníka.</p>'}
     <p class="muted small">Cvičte pravidelně, pomalu a bez ostré bolesti. Pokud se potíže do 2–3 týdnů nezlepší, vyhledejte odborníka.</p>
     <button class="btn ghost" id="del-complaint">Smazat tuto potíž</button>
   `);
@@ -550,6 +688,8 @@ function renderComplaint(c) {
     renderComplaint(c);
   }));
   $('#del-complaint').addEventListener('click', () => deleteComplaint(c.id));
+  bindInnervation(innervation(c.point), c.point);
+  bindExerciseCards();
 }
 
 // ---------------------------------------------------------------------------
