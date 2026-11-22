@@ -136,6 +136,7 @@ export class Mannequin {
     const thor = this.group('thoracic', lumbar, [0, DIM.lumbar, 0]);
     this.chest = this.ell(thor, 'chest', [0, 0.13, 0.0], [0.155, 0.155, 0.098]);
     this.marker('back', thor, [0, 0.12, -0.1]);
+    this.marker('lowBack', lumbar, [0, 0.07, -0.095]);
     this.marker('scapulaL', thor, [0.08, 0.15, -0.1]);
     const neck = this.group('neck', thor, [0, DIM.thoracic, -0.01]);
     this.cap(neck, 'neck', DIM.neck + 0.02, 0.045, 1);
@@ -192,6 +193,7 @@ export class Mannequin {
       const kn = this.group(`${p}Knee`, hip, [0, -DIM.thigh, 0]);
       this.joint(kn, 0.05);
       this.marker(`${p}Knee`, kn, [0, 0, 0.04]);
+      this.marker(`${p}KneeIn`, kn, [-0.045 * s, 0.02, 0]);
       this.cap(kn, `${p}Shin`, DIM.shin, 0.05, -1, 0.034);
       const an = this.group(`${p}Ankle`, kn, [0, -DIM.shin, 0]);
       this.ell(an, `${p}Foot`, [0, -0.04, 0.065], [0.045, 0.036, 0.13]);

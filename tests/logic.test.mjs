@@ -132,3 +132,55 @@ test('každý cvik má animaci se známou výchozí polohou a klouby', () => {
     for (const k of a.keys) for (const j of Object.keys(k.p)) assert.ok(POSE_KEYS.has(j), `${e.id}: neznámý kloub ${j}`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// Cvičební plán
+// ---------------------------------------------------------------------------
+import { buildPlan, mergeAiPlan, buildAiPrompt, candidatesFor, CATEGORY } from '../js/planner.js';
+
+const C = (id, region, symptom, intensity, side = 'leva') => ({ id, region, symptom, intensity, side });
+
+test('každý cvik má kategorii plánovače', () => {
+  for (const e of EXERCISES) assert.ok(CATEGORY[e.id], `chybí kategorie ${e.id}`);
+});
+
+test('plán pokryje každou potíž a vejde se do času', () => {
+  const list = [C('a', 'krk', 'bolest', 5), C('b', 'bedra', 'tlak', 4), C('c', 'zapesti', 'brneni', 6, 'prava')];
+  for (const minutes of [10, 15, 20, 30]) {
+    const p = buildPlan(list, { minutes, days: 5, equipment: [] });
+    const ids = p.sessions.A.items.map((i) => i.id);
+    for (const c of list) {
+      assert.ok(ids.some((id) => candidatesFor(c, {}).some((e) => e.id === id) || id === 'breathing'), `${minutes} min: nepokryto ${c.region}`);
+    }
+    const t = p.sessions.A.items.reduce((s, i) => s + ({ relax: 3, mobility: 2, nerve: 2, strength: 3, stretch: 2.5 })[i.category], 0);
+    assert.ok(t <= minutes + 4, `${minutes} min: ${t}`);
+    assert.equal(new Set(ids).size, ids.length, 'duplicitní cvik');
+    assert.equal(p.schedule.filter((d) => d.session).length, 5);
+  }
+});
+
+test('plán bez overballu neobsahuje overball, s ním ano', () => {
+  const list = [C('a', 'bedra', 'bolest', 4), C('b', 'kycel', 'bolest', 4)];
+  const without = buildPlan(list, { minutes: 30, equipment: [] });
+  assert.ok(without.sessions.A.items.every((i) => !i.equipment));
+  const withOb = buildPlan(list, { minutes: 30, equipment: ['overball'] });
+  assert.ok(withOb.sessions.A.items.some((i) => i.equipment === 'overball'));
+});
+
+test('silná potíž = jen šetrné cviky', () => {
+  const p = buildPlan([C('a', 'bedra', 'bolest', 8), C('b', 'koleno', 'bolest', 3)], { minutes: 20 });
+  assert.ok(p.gentleOnly);
+  assert.ok(p.sessions.A.items.filter((i) => i.why.includes('Bedra')).every((i) => i.gentle));
+});
+
+test('odpověď AI: neznámé cviky se zahodí, prompt obsahuje jen povolené cviky', () => {
+  const list = [C('a', 'rameno', 'bolest', 4)];
+  const base = buildPlan(list, { minutes: 15 });
+  const { user } = buildAiPrompt(list, { minutes: 15 }, base);
+  const allowed = new Set(JSON.parse(user).exercises.map((e) => e.id));
+  const ai = { summary: 'x', A: [{ id: 'pendulum', why: 'a' }, { id: 'neexistuje' }, { id: 'ext-rot' }], B: [], tips: ['t'] };
+  const merged = mergeAiPlan(base, ai, allowed);
+  assert.deepEqual(merged.sessions.A.items.map((i) => i.id), ['pendulum', 'ext-rot']);
+  assert.equal(merged.source, 'ai');
+  assert.throws(() => mergeAiPlan(base, { A: [{ id: 'neexistuje' }] }, allowed));
+});

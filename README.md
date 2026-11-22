@@ -31,6 +31,12 @@ místo, kde cítí bolest, tlak nebo brnění** – aplikace pak nabídne vhodn�
   - varovné příznaky („kdy nečekat a jít k lékaři“),
   - při intenzitě 7/10 a více jen šetrná cvičení a doporučení konzultace.
 - **Moje potíže** – označená místa se ukládají v prohlížeči (localStorage), lze je měnit i mazat.
+- **Cvičební plán** – z kombinace všech označených potíží sestaví plán: vybere cviky, které pomáhají na víc potíží
+  zároveň, vyváží rozhýbání, posílení a protažení, dodrží zvolený čas (10–30 min) a rozvrhne jednotky A/B do týdne
+  včetně postupu po týdnech. Volitelně může plán sestavit AI (Claude) s vlastním API klíčem uživatele – vybírá jen
+  z cviků aplikace a při chybě se použije místní plánovač. Plán lze uložit a vytisknout.
+- **Cviky s overballem** – 9 cviků s měkkým míčem (krk, hrudní páteř, rameno, bedra, kyčel, koleno, břicho),
+  s volbou „Mám overball“.
 - Funguje na počítači i na mobilu.
 
 ## Spuštění
@@ -68,7 +74,8 @@ js/dermatomes.js    mapa dermatomů a kožních nervů
 js/figure.js        realistická postava pro animace (kostra, váhy kůže, oblečení)
 js/mannequin.js     záložní kloubová figurína a společné funkce póz
 js/exercise-anims.js klíčové pózy všech cviků
-js/anim-player.js   přehrávač animací v kartě cviku
+js/anim-player.js   přehrávač animací v kartě cviku (stíny, průběh, opakování, rychlost)
+js/planner.js       sestavení cvičebního plánu (místně i přes Claude API)
 js/landmarks.js     orientační body kostry (vygenerované z modelu)
 js/regions.js       tělesné oblasti a určení oblasti z bodu na postavě
 models/             anatomické modely (GLB) a české popisky (parts.json)

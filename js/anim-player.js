@@ -21,14 +21,25 @@ export class ExercisePlayer {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0xf1f5f7);
     const pm = new THREE.PMREMGenerator(this.renderer);
     this.scene.environment = pm.fromScene(new RoomEnvironment(), 0.04).texture;
     this.scene.environmentIntensity = 0.55;
-    const key = new THREE.DirectionalLight(0xffffff, 1.8);
-    key.position.set(2, 4, 3);
-    this.scene.add(key, new THREE.HemisphereLight(0xffffff, 0x9aa5ad, 0.5));
+    const key = new THREE.DirectionalLight(0xfff3e8, 2.0);
+    key.position.set(1.6, 4, 2.4);
+    key.castShadow = true;
+    key.shadow.mapSize.set(1024, 1024);
+    key.shadow.bias = -0.0006;
+    key.shadow.normalBias = 0.02;
+    key.shadow.radius = 4;
+    this.key = key;
+    this.scene.add(key, key.target, new THREE.HemisphereLight(0xffffff, 0x9aa5ad, 0.55));
+    const fill = new THREE.DirectionalLight(0xdde8ff, 0.5);
+    fill.position.set(-2.5, 1.5, -1.5);
+    this.scene.add(fill);
     this.camera = new THREE.PerspectiveCamera(32, 1.6, 0.05, 30);
     this.controls = new OrbitControls(this.camera, this.canvas);
     this.controls.enableDamping = true;
@@ -48,6 +59,14 @@ export class ExercisePlayer {
     this.floor = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 2.6), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false }));
     this.floor.rotation.x = -Math.PI / 2;
     this.scene.add(this.floor);
+    // skutečný vržený stín na podlahu
+    this.shadowFloor = new THREE.Mesh(new THREE.PlaneGeometry(6, 6), new THREE.ShadowMaterial({ color: 0x1e2d37, opacity: 0.22 }));
+    this.shadowFloor.rotation.x = -Math.PI / 2;
+    this.shadowFloor.position.y = 0.0005;
+    this.shadowFloor.receiveShadow = true;
+    this.scene.add(this.shadowFloor);
+    this.groundExtras = [];
+    this.reps = 0;
 
     this.man = null;            // postava se načte při prvním přehrání
     this.props = new THREE.Group();
@@ -89,10 +108,43 @@ export class ExercisePlayer {
     this._ground();
     this.anchorRef = this._anchorMean();
 
+    this.def.ownBreath = def.keys.some((k) => k.p.breath !== undefined);
+    this.reps = 0;
     this.man.setFocus(def.focus || []);
+    this.man.root.traverse((o) => { if (o.isMesh) { o.castShadow = true; } });
     this._buildProps([...(base.props || []).filter((p) => !(def.props || []).some((q) => q.type === p.type)), ...(def.props || [])]);
     this._fitCamera(def.view || 'side');
+    // stínová kamera kolem postavy
+    const c = this.controls.target;
+    const sc = this.key.shadow.camera;
+    Object.assign(sc, { left: -1.3, right: 1.3, top: 1.3, bottom: -1.3, near: 0.5, far: 10 });
+    sc.updateProjectionMatrix();
+    this.key.target.position.set(c.x, 0.4, c.z);
+    this.key.position.set(c.x + 1.6, 4, c.z + 2.4);
+    this.props.traverse((o) => { if (o.isMesh && !o.material.transparent) { o.castShadow = true; o.receiveShadow = true; } });
+    this._buildTimeline();
     if (this.labelEl) this.labelEl.textContent = '';
+  }
+
+  _buildTimeline() {
+    if (!this.track) return;
+    this.track.querySelectorAll('.anim-tick').forEach((t) => t.remove());
+    for (const sg of this.segments) {
+      if (sg.from !== sg.to || sg.t1 - sg.t0 < 0.6) continue;   // výdrže
+      const t = document.createElement('div');
+      t.className = 'anim-tick';
+      t.style.left = `${(sg.t0 / this.duration) * 100}%`;
+      t.style.width = `${((sg.t1 - sg.t0) / this.duration) * 100}%`;
+      this.track.appendChild(t);
+    }
+  }
+
+  _updateBar() {
+    if (this.fill) this.fill.style.width = `${(this.time / this.duration) * 100}%`;
+    if (this.repEl) {
+      const txt = this.reps > 0 ? `${this.reps + 1}. opakování` : '';
+      if (this.repEl.textContent !== txt) this.repEl.textContent = txt;
+    }
   }
 
   _anchorMean() {
@@ -103,7 +155,8 @@ export class ExercisePlayer {
   }
 
   _ground() {
-    const minY = this.man.minY();
+    let minY = this.man.minY();
+    for (const f of this.groundExtras) minY = Math.min(minY, f());
     this.man.root.position.y -= minY;
     this.man.root.updateMatrixWorld(true);
   }
@@ -116,6 +169,8 @@ export class ExercisePlayer {
 
   _applyAt(t) {
     const { pose, label } = this._poseAt(t);
+    // klidné dýchání během cviku (pokud cvik dech sám neřídí)
+    if (!this.def.ownBreath) pose.breath = 0.18 + 0.18 * Math.sin((performance.now() / 1000) * (Math.PI * 2 / 4.2));
     this.man.apply(pose);
     const cur = this._anchorMean();
     this.man.root.position.x += this.anchorRef.x - cur.x;
@@ -130,6 +185,7 @@ export class ExercisePlayer {
   // ------------------------------------------------------------------
   _buildProps(list) {
     this.props.clear();
+    this.groundExtras = [];
     for (const a of this.attached) a.obj.parent?.remove(a.obj);
     this.attached = [];
     this.bands = [];
@@ -260,6 +316,40 @@ export class ExercisePlayer {
           }
           break;
         }
+        case 'overball': {
+          // měkký míč (Ø ~25 cm): mezi dvěma body těla (stlačuje se), nebo podložený pod tělem / u zdi
+          const R = p.r || 0.12;
+          const mat = new THREE.MeshPhysicalMaterial({ color: p.color ?? 0xb98ad9, roughness: 0.45, sheen: 0.9, sheenColor: new THREE.Color(0xffffff), clearcoat: 0.3 });
+          const mesh = add(new THREE.Mesh(new THREE.SphereGeometry(R, 40, 28), mat));
+          const A = new THREE.Vector3(), Bv = new THREE.Vector3(), dir = new THREE.Vector3(...(p.dir || [0, -1, 0])).normalize();
+          const sq = p.squash ?? (p.dir && p.dir[1] < 0 ? 0.5 : 0.85);
+          const up = new THREE.Vector3(0, 1, 0);
+          const update = () => {
+            if (p.between) {
+              this.man.markerPos(p.between[0], A);
+              this.man.markerPos(p.between[1], Bv);
+              const ax = Bv.clone().sub(A);
+              const d = ax.length();
+              const k = Math.max(0.5, Math.min(1, d / (2 * R)));
+              mesh.position.copy(A).addScaledVector(ax, 0.5);
+              mesh.quaternion.setFromUnitVectors(up, ax.normalize());
+              mesh.scale.set(1 / Math.sqrt(k), k, 1 / Math.sqrt(k));
+            } else {
+              this.man.markerPos(p.at, A);
+              mesh.position.copy(A).addScaledVector(dir, R * sq);
+              mesh.quaternion.setFromUnitVectors(up, dir);
+              mesh.scale.set(1 / Math.sqrt(sq), sq, 1 / Math.sqrt(sq));
+            }
+          };
+          this.bands.push({ update });
+          if (!p.between && dir.y < -0.5) this.groundExtras.push(() => this.man.markerPos(p.at, A).y - 2 * R * sq);
+          update();
+          if (p.wall) {
+            const w = add(boxMesh(0.9, 2.1, 0.04, new THREE.MeshPhysicalMaterial({ color: 0xdfe5ea, roughness: 0.9 })));
+            w.position.set(A.x, 1.05, A.z + dir.z * (2 * R * sq + 0.02));
+          }
+          break;
+        }
         case 'bottle':
         case 'hammer': {
           const parent = this.man.markers[p.attach].parent;
@@ -350,20 +440,42 @@ export class ExercisePlayer {
     wrap.appendChild(this.canvas);
     this.labelEl = document.createElement('div');
     this.labelEl.className = 'anim-label';
-    const btn = document.createElement('button');
-    btn.className = 'anim-btn';
-    btn.type = 'button';
-    btn.setAttribute('aria-label', 'Pozastavit nebo přehrát');
-    btn.textContent = '❚❚';
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.playing = !this.playing;
-      btn.textContent = this.playing ? '❚❚' : '▶';
-    });
     const hint = document.createElement('div');
     hint.className = 'anim-hint';
     hint.textContent = 'táhnutím otočíte';
-    wrap.append(this.labelEl, btn, hint);
+    this.repEl = document.createElement('div');
+    this.repEl.className = 'anim-reps';
+    // ovládací lišta: přehrát/pauza, znovu, rychlost, průběh s fázemi
+    const bar = document.createElement('div');
+    bar.className = 'anim-bar';
+    const mk = (cls, label, text) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = cls;
+      b.setAttribute('aria-label', label);
+      b.textContent = text;
+      return b;
+    };
+    const play = mk('anim-ctl', 'Pozastavit nebo přehrát', '❚❚');
+    const restart = mk('anim-ctl', 'Od začátku', '↺');
+    const speed = mk('anim-ctl anim-speed', 'Rychlost přehrávání', '1×');
+    this.track = document.createElement('div');
+    this.track.className = 'anim-track';
+    this.fill = document.createElement('div');
+    this.fill.className = 'anim-fill';
+    this.track.appendChild(this.fill);
+    play.addEventListener('click', (e) => { e.stopPropagation(); this.playing = !this.playing; play.textContent = this.playing ? '❚❚' : '▶'; });
+    restart.addEventListener('click', (e) => { e.stopPropagation(); this.time = 0; this.reps = 0; this.playing = true; play.textContent = '❚❚'; });
+    speed.addEventListener('click', (e) => { e.stopPropagation(); this.speed = this.speed === 1 ? 0.5 : 1; speed.textContent = this.speed === 1 ? '1×' : '½×'; });
+    const seek = (ev) => {
+      const r = this.track.getBoundingClientRect();
+      this.time = Math.max(0, Math.min(0.999, (ev.clientX - r.left) / r.width)) * this.duration;
+    };
+    this.track.addEventListener('pointerdown', (ev) => { ev.stopPropagation(); seek(ev); this.track.setPointerCapture(ev.pointerId); });
+    this.track.addEventListener('pointermove', (ev) => { if (ev.buttons) seek(ev); });
+    bar.append(play, restart, this.track, speed);
+    this.speed = 1;
+    wrap.append(this.labelEl, this.repEl, hint, bar);
     container.appendChild(wrap);
     this.playing = true;
     this.labelEl.textContent = 'Načítám postavu…';
@@ -412,7 +524,12 @@ export class ExercisePlayer {
     if (!this.container || !this.container.isConnected) { this._raf = null; this.container = null; return; }
     const dt = Math.min(0.05, (now - this._last) / 1000);
     this._last = now;
-    if (this.playing) this.time = (this.time + dt * this.speed) % this.duration;
+    if (this.playing) {
+      const nt = this.time + dt * this.speed;
+      if (nt >= this.duration) this.reps++;
+      this.time = nt % this.duration;
+    }
+    this._updateBar();
     const label = this._applyAt(this.time);
     if (this.labelEl && this.labelEl.textContent !== (label || '')) this.labelEl.textContent = label || '';
     if (this.canvas.parentElement && Math.abs(this.canvas.parentElement.clientWidth - this.canvas.width / this.renderer.getPixelRatio()) > 2) this._resize();
