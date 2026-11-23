@@ -16,7 +16,10 @@ místo, kde cítí bolest, tlak nebo brnění** – aplikace pak nabídne vhodn�
 - **Dermatomy** – přepínač obarví kůži podle míšních segmentů. U každé potíže aplikace ukáže dermatom a kožní nerv
   daného místa (u brnění jako „možný zdroj“) a tlačítkem nerv zvýrazní na modelu.
 - **Animace cviků** – vlastní 3D postava určená pro animace (jedna hladká síť s kostrou, A-póza, sportovní oblečení) předvádí všechny cviky včetně pomůcek (židle, stůl, zeď, guma, míček…),
-  s popisem fáze („výdrž 5 s“); animaci lze pozastavit a otáčet.
+  s popisem fáze („výdrž 5 s“). Postava ukazuje jednotlivé povrchové svaly: pracující svaly jsou červeně a při pohybu
+  se stahují, protahované modře, uvolňované zeleně; šipky ukazují směr pohybu a legenda pod animací jmenuje zapojené
+  svaly (i hluboké, které na povrchu nejsou vidět). Záběr je pevný, aby byl cvik vidět z nejlepšího úhlu; tlačítkem
+  „Svaly“ / „Postava“ lze přepnout na postavu v oblečení.
 - **Realistické zobrazení** (Three.js) – fyzikálně založené materiály, osvětlení prostředím, filmové tónování,
   vržené stíny v režimu „Vysoká kvalita“.
 - Otáčení tažením, přiblížení kolečkem / dvěma prsty, posun pravým tlačítkem.
@@ -75,6 +78,7 @@ js/avatar.js        postava pro animace (models/avatar.glb, kostra a váhy z too
 js/figure.js        záložní postava z kůže BodyParts3D
 js/mannequin.js     záložní kloubová figurína a společné funkce póz
 js/exercise-anims.js klíčové pózy všech cviků
+js/exercise-muscles.js zapojení svalů u jednotlivých cviků (pracují / protahují se / uvolňují se)
 js/anim-player.js   přehrávač animací v kartě cviku (stíny, průběh, opakování, rychlost)
 js/planner.js       sestavení cvičebního plánu (místně i přes Claude API)
 js/landmarks.js     orientační body kostry (vygenerované z modelu)
@@ -93,7 +97,8 @@ tests/              testy logiky (node:test)
 - **Názvy a popisy struktur** – `tools/names_cs.py` (po úpravě spustit znovu, viz `tools/README.md`).
 - **Nervy** – dráhy jsou v `js/nerves.js`, cévy končetin ve funkci `buildExtras()` v `js/body.js`.
 - **Animace cviku** – přidejte záznam do `ANIMS` v `js/exercise-anims.js` (výchozí poloha, klíčové pózy jako úhly
-  kloubů ve stupních, pomůcky). Význam úhlů je popsán v hlavičce `js/mannequin.js`.
+  kloubů ve stupních, pomůcky). Význam úhlů je popsán v hlavičce `js/mannequin.js`. Zapojené svaly doplňte
+  do `EXERCISE_MUSCLES` v `js/exercise-muscles.js`.
 - **Oblasti** – hranice oblastí jsou v `detectRegion()` v `js/regions.js`.
 
 ## Licence a zdroje

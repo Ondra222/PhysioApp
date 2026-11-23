@@ -1,17 +1,37 @@
 // Přehrávač animací cviků – jedna sdílená 3D scéna, která se vkládá do otevřené karty cviku.
 import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { Mannequin, emptyPose, mergePose, lerpPose } from './mannequin.js';
 import { Figure, loadFigureData } from './figure.js';
 import { Avatar, loadAvatar } from './avatar.js';
 import { ANIMS, BASES } from './exercise-anims.js';
+import { EXERCISE_MUSCLES, DEEP_KIND, musclesFor } from './exercise-muscles.js';
 
 export function hasAnimation(id) {
   return !!ANIMS[id];
 }
 
 const ease = (t) => t * t * (3 - 2 * t);
+// body, jejichž dráhu ukazují šipky pohybu
+const PATH_MARKERS = ['lHand', 'rHand', 'lFoot', 'rFoot', 'lKnee', 'rKnee', 'lElbow', 'rElbow', 'forehead', 'head', 'pelvis', 'back', 'lFingertips', 'lHeel', 'rHeel'];
+const SIDE_CS = { l: 'levá', r: 'pravá' };
+
+// souhrnná vzdálenost dvou póz (pro míru stahu svalů)
+function poseDist(a, b) {
+  let d = 0;
+  for (const j of Object.keys(a)) {
+    const x = a[j], y = b[j];
+    if (typeof x === 'number') { d += Math.abs(x - (y || 0)) * 30; continue; }
+    if (!x || typeof x !== 'object') continue;
+    if (Array.isArray(x)) { x.forEach((v, i) => { d += Math.abs(v - (y?.[i] ?? 0)) * (j === 'root' ? 0 : 1); }); continue; }
+    for (const k of Object.keys(x)) {
+      const v = x[k];
+      if (Array.isArray(v)) v.forEach((w, i) => { d += Math.abs(w - (y?.[k]?.[i] ?? 0)) * (k === 'rot' ? 1 : 0); });
+      else if (typeof v === 'number') d += Math.abs(v - (y?.[k] ?? 0)) * (k === 'shift' ? 400 : k === 'elev' || k === 'retr' ? 20 : 1);
+    }
+  }
+  return d;
+}
 const PROP_MAT = () => new THREE.MeshPhysicalMaterial({ color: 0xb48a62, roughness: 0.6, clearcoat: 0.2 });
 
 export class ExercisePlayer {
@@ -42,11 +62,9 @@ export class ExercisePlayer {
     fill.position.set(-2.5, 1.5, -1.5);
     this.scene.add(fill);
     this.camera = new THREE.PerspectiveCamera(32, 1.6, 0.05, 30);
-    this.controls = new OrbitControls(this.camera, this.canvas);
-    this.controls.enableDamping = true;
-    this.controls.enablePan = false;
-    this.controls.minDistance = 0.4;
-    this.controls.maxDistance = 6;
+    this.target = new THREE.Vector3();          // kamera je pevná – animace ukazuje cvik z nejlepšího úhlu
+    this.muscleView = true;
+    this.arrows = new THREE.Group();
 
     // podlaha s měkkým stínem
     const c = document.createElement('canvas');
@@ -71,7 +89,7 @@ export class ExercisePlayer {
 
     this.man = null;            // postava se načte při prvním přehrání
     this.props = new THREE.Group();
-    this.scene.add(this.props);
+    this.scene.add(this.props, this.arrows);
     this.attached = [];
     this.bands = [];
     this.playing = true;
@@ -112,11 +130,17 @@ export class ExercisePlayer {
     this.def.ownBreath = def.keys.some((k) => k.p.breath !== undefined);
     this.reps = 0;
     this.man.setFocus(def.focus || []);
+    this.exId = id;
+    this.hasMuscles = !!this.man.setActive && this.man.hasMuscles;
+    this.man.setMuscleView?.(this.muscleView);
+    this._phaseKey = undefined;
+    // míra „stahu“ = jak daleko je póza od výchozí (0 = výchozí poloha, 1 = nejdál)
+    this.maxDist = Math.max(1e-3, ...this.poses.map((p) => poseDist(p, this.poses[0])));
     this.man.root.traverse((o) => { if (o.isMesh) { o.castShadow = true; } });
     this._buildProps([...(base.props || []).filter((p) => !(def.props || []).some((q) => q.type === p.type)), ...(def.props || [])]);
     this._fitCamera(def.view || 'side');
     // stínová kamera kolem postavy
-    const c = this.controls.target;
+    const c = this.target;
     const sc = this.key.shadow.camera;
     Object.assign(sc, { left: -1.3, right: 1.3, top: 1.3, bottom: -1.3, near: 0.5, far: 10 });
     sc.updateProjectionMatrix();
@@ -124,7 +148,141 @@ export class ExercisePlayer {
     this.key.position.set(c.x + 1.6, 4, c.z + 2.4);
     this.props.traverse((o) => { if (o.isMesh && !o.material.transparent) { o.castShadow = true; o.receiveShadow = true; } });
     this._buildTimeline();
+    this._buildArrows();
+    this._applyAt(0);
+    this._updateMuscles(0, true);
     if (this.labelEl) this.labelEl.textContent = '';
+  }
+
+  // ------------------------------------------------------------------
+  // svaly: zvýraznění podle fáze cviku a legenda
+  _phaseFor(seg) {
+    const ph = EXERCISE_MUSCLES[this.exId]?.phase;
+    if (!ph) return null;
+    if (ph[seg.to] !== undefined) return seg.to;
+    if (ph[seg.from] !== undefined) return seg.from;
+    return null;
+  }
+
+  _updateMuscles(segIndex, force = false) {
+    if (!this.hasMuscles) { this._renderLegend(null); return; }
+    const seg = this.segments[segIndex];
+    const key = this._phaseFor(seg);
+    if (!force && key === this._phaseKey) return;
+    this._phaseKey = key;
+    const m = musclesFor(this.exId, key);
+    this.man.setActive(m.work, m.stretch, m.relax);
+    this._renderLegend(m);
+  }
+
+  _renderLegend(m) {
+    const el = this.legendEl;
+    if (!el) return;
+    el.innerHTML = '';
+    if (!m || !this.muscleView) { el.hidden = true; return; }
+    const names = (list) => {
+      const by = new Map();
+      for (const it of list) {
+        const [k, s] = it.split('.');
+        const nm = this.man.muscleName(k);
+        if (!by.has(nm)) by.set(nm, new Set());
+        by.get(nm).add(s || 'lr');
+      }
+      const one = (ss) => (ss.size === 1 && !ss.has('lr') ? [...ss][0] : null);
+      const sides = [...by.values()].map(one);
+      // všechny svaly na stejné straně → strana jednou na konci řádku
+      if (sides.length && sides.every((x) => x && x === sides[0])) {
+        const out = [...by.keys()];
+        out[out.length - 1] += ` (${SIDE_CS[sides[0]]} strana)`;
+        return out;
+      }
+      return [...by].map(([nm, ss]) => (one(ss) ? `${nm} (${SIDE_CS[one(ss)]})` : nm));
+    };
+    const rows = [
+      ['work', 'Pracuje', names(m.work)], ['stretch', 'Protahuje se', names(m.stretch)], ['relax', 'Uvolňuje se', names(m.relax)],
+    ];
+    for (const [nm, kind] of m.deep) {
+      const row = rows.find((r) => r[0] === kind);
+      const txt = `${nm} – hluboko`;
+      if (row) row[2].push(txt); else rows.push([kind, DEEP_KIND[kind][0].toUpperCase() + DEEP_KIND[kind].slice(1), [nm]]);
+    }
+    for (const [kind, title, list] of rows) {
+      if (!list.length) continue;
+      const r = document.createElement('div');
+      r.className = `anim-leg anim-leg-${kind}`;
+      r.innerHTML = `<i></i><b>${title}:</b> `;
+      r.append(document.createTextNode(list.join(', ')));
+      el.appendChild(r);
+    }
+    el.hidden = !el.childElementCount;
+  }
+
+  // ------------------------------------------------------------------
+  // šipky pohybu: dráha nejvíc se pohybujících částí těla v každém přechodu
+  _buildArrows() {
+    for (const o of this.arrows.children) o.traverse((x) => { x.geometry?.dispose(); x.material?.dispose(); });
+    this.arrows.clear();
+    this.segArrows = this.segments.map(() => null);
+    const names = PATH_MARKERS.filter((n) => this.man.markers?.[n]);
+    if (!names.length) return;
+    const tmp = new THREE.Vector3();
+    const dist = this.camera.position.distanceTo(this.target);
+    const rad = Math.max(0.004, dist * 0.0042);
+    this.segments.forEach((sg, si) => {
+      if (sg.from === sg.to) return;
+      const N = 18;
+      const paths = Object.fromEntries(names.map((n) => [n, []]));
+      for (let i = 0; i <= N; i++) {
+        this._applyAt(sg.t0 + (sg.t1 - sg.t0) * (i / N) - (i === N ? 1e-4 : 0), true);
+        for (const n of names) paths[n].push(this.man.markerPos(n, tmp).clone());
+      }
+      const cand = names.map((n) => {
+        const p = paths[n];
+        return { n, p, d: p[0].distanceTo(p[p.length - 1]), len: p.reduce((a, v, i) => a + (i ? v.distanceTo(p[i - 1]) : 0), 0) };
+      }).sort((a, b) => b.len - a.len);
+      const best = cand[0];
+      if (!best || best.len < 0.022) return;
+      const pick = [];
+      for (const c of cand) {
+        if (c.len < Math.max(0.022, best.len * 0.55)) break;
+        if (pick.some((q) => q.p[q.p.length - 1].distanceTo(c.p[c.p.length - 1]) < 0.22)) continue;
+        pick.push(c);
+        if (pick.length >= 2) break;
+      }
+      const g = new THREE.Group();
+      const back = sg.to === 0 && this.segments.length > 2;          // návrat do výchozí polohy
+      for (const c of pick) g.add(this._arrowMesh(c.p, rad, back));
+      g.visible = false;
+      this.arrows.add(g);
+      this.segArrows[si] = g;
+    });
+    this._applyAt(0);
+  }
+
+  _arrowMesh(pts, rad, back) {
+    // dráhu mírně vyhladit a odsadit konec, aby hrot nekončil uvnitř ruky / nohy
+    const curve = new THREE.CatmullRomCurve3(pts, false, 'centripetal');
+    const L = curve.getLength();
+    const head = Math.min(L * 0.35, rad * 6);
+    const end = 1 - Math.min(0.12, (rad * 2) / Math.max(L, 1e-3));
+    const tubeEnd = Math.max(0.05, end - head / Math.max(L, 1e-3));
+    const sub = [];
+    for (let i = 0; i <= 24; i++) sub.push(curve.getPointAt(0.04 + (tubeEnd - 0.04) * (i / 24)));
+    const g = new THREE.Group();
+    const tip = curve.getPointAt(end);
+    const dir = tip.clone().sub(curve.getPointAt(tubeEnd)).normalize();
+    const tubeGeo = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(sub), 32, rad, 8, false);
+    // tmavý obrys pod žlutou šipkou, aby byla vidět i přes červené svaly
+    for (const [color, scale, opacity, order] of [[0x3d2a00, 1.7, back ? 0.25 : 0.45, 10], [back ? 0xb9c6cf : 0xffc61a, 1, back ? 0.6 : 1, 11]]) {
+      const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthTest: false });
+      const tube = new THREE.Mesh(scale === 1 ? tubeGeo : new THREE.TubeGeometry(new THREE.CatmullRomCurve3(sub), 32, rad * scale, 8, false), mat);
+      const cone = new THREE.Mesh(new THREE.ConeGeometry(rad * 2.7 * (scale === 1 ? 1 : 1.25), head * (scale === 1 ? 1 : 1.15), 16), mat);
+      cone.position.copy(tip).addScaledVector(dir, -head / 2);
+      cone.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+      for (const o of [tube, cone]) o.renderOrder = order;
+      g.add(tube, cone);
+    }
+    return g;
   }
 
   _buildTimeline() {
@@ -163,13 +321,17 @@ export class ExercisePlayer {
   }
 
   _poseAt(t) {
-    const seg = this.segments.find((s) => t >= s.t0 && t < s.t1) || this.segments[this.segments.length - 1];
+    let si = this.segments.findIndex((s) => t >= s.t0 && t < s.t1);
+    if (si < 0) si = this.segments.length - 1;
+    const seg = this.segments[si];
     const k = seg.t1 > seg.t0 ? ease((t - seg.t0) / (seg.t1 - seg.t0)) : 1;
-    return { pose: seg.from === seg.to ? this.poses[seg.from] : lerpPose(this.poses[seg.from], this.poses[seg.to], k), label: seg.label };
+    return { pose: seg.from === seg.to ? this.poses[seg.from] : lerpPose(this.poses[seg.from], this.poses[seg.to], k), label: seg.label, si };
   }
 
-  _applyAt(t) {
-    const { pose, label } = this._poseAt(t);
+  _applyAt(t, quiet = false) {
+    const { pose, label, si } = this._poseAt(t);
+    this.segIndex = si;
+    if (!quiet && this.maxDist) this.man.setContract?.(Math.min(1, poseDist(pose, this.poses[0]) / this.maxDist));
     // klidné dýchání během cviku (pokud cvik dech sám neřídí)
     if (!this.def.ownBreath) pose.breath = 0.18 + 0.18 * Math.sin((performance.now() / 1000) * (Math.PI * 2 / 4.2));
     this.man.apply(pose);
@@ -405,10 +567,10 @@ export class ExercisePlayer {
     // obálka přes všechny klíčové pózy
     const box = new THREE.Box3();
     for (let t = 0; t < this.duration; t += this.duration / 12) {
-      this._applyAt(t);
+      this._applyAt(t, true);
       box.union(this.man.bbox());
     }
-    this._applyAt(0);
+    this._applyAt(0, true);
     if (view === 'hand') {
       box.makeEmpty();
       const w = this.man.markerPos('lHand');
@@ -421,14 +583,30 @@ export class ExercisePlayer {
       threeBack: [0.7, 0.3, -0.7], top: [0.35, 1.4, 0.75], hand: [1, 0.25, 0.45],
     };
     const dir = new THREE.Vector3(...(dirs[view] || dirs.side)).normalize();
-    const radius = view === 'hand' ? Math.max(size.x, size.y, size.z) * 0.5 : Math.max(size.x, size.y, size.z) * 0.6 + 0.05;
-    const dist = radius / Math.sin(THREE.MathUtils.degToRad(this.camera.fov / 2)) * 0.95;
-    this.controls.minDistance = Math.min(0.4, dist * 0.6);
-    this.controls.target.copy(center);
+    let dist;
+    if (view === 'hand') {
+      dist = (Math.max(size.x, size.y, size.z) * 0.5) / Math.sin(THREE.MathUtils.degToRad(this.camera.fov / 2)) * 0.95;
+    } else {
+      // co nejtěsnější záběr: rozměry obálky promítnuté do roviny kamery
+      const fwd = dir.clone().negate();
+      const right = new THREE.Vector3().crossVectors(fwd, new THREE.Vector3(0, 1, 0)).normalize();
+      const up = new THREE.Vector3().crossVectors(right, fwd);
+      let hx = 0, hy = 0, hz = 0;
+      for (let i = 0; i < 8; i++) {
+        const c = new THREE.Vector3(i & 1 ? box.max.x : box.min.x, i & 2 ? box.max.y : box.min.y, i & 4 ? box.max.z : box.min.z).sub(center);
+        hx = Math.max(hx, Math.abs(c.dot(right)));
+        hy = Math.max(hy, Math.abs(c.dot(up)));
+        hz = Math.max(hz, Math.abs(c.dot(fwd)));
+      }
+      const tv = Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2));
+      const th = tv * this.camera.aspect;
+      dist = Math.max(hx / th, hy / tv) * 1.12 + hz;
+    }
+    this.target.copy(center);
     this.camera.position.copy(center).addScaledVector(dir, dist);
     this.camera.near = Math.max(0.02, dist / 50);
     this.camera.updateProjectionMatrix();
-    this.controls.update();
+    this.camera.lookAt(this.target);
   }
 
   // ------------------------------------------------------------------
@@ -441,9 +619,9 @@ export class ExercisePlayer {
     wrap.appendChild(this.canvas);
     this.labelEl = document.createElement('div');
     this.labelEl.className = 'anim-label';
-    const hint = document.createElement('div');
-    hint.className = 'anim-hint';
-    hint.textContent = 'táhnutím otočíte';
+    this.legendEl = document.createElement('div');
+    this.legendEl.className = 'anim-legend';
+    this.legendEl.hidden = true;
     this.repEl = document.createElement('div');
     this.repEl.className = 'anim-reps';
     // ovládací lišta: přehrát/pauza, znovu, rychlost, průběh s fázemi
@@ -460,6 +638,16 @@ export class ExercisePlayer {
     const play = mk('anim-ctl', 'Pozastavit nebo přehrát', '❚❚');
     const restart = mk('anim-ctl', 'Od začátku', '↺');
     const speed = mk('anim-ctl anim-speed', 'Rychlost přehrávání', '1×');
+    const view = mk('anim-ctl anim-view', 'Přepnout svaly / postavu v oblečení', this.muscleView ? 'Svaly' : 'Postava');
+    view.title = 'Přepnout zobrazení svalů';
+    view.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.muscleView = !this.muscleView;
+      view.textContent = this.muscleView ? 'Svaly' : 'Postava';
+      this.man?.setMuscleView?.(this.muscleView);
+      if (this.hasMuscles) this._updateMuscles(this.segIndex || 0, true);
+    });
+    this.viewBtn = view;
     this.track = document.createElement('div');
     this.track.className = 'anim-track';
     this.fill = document.createElement('div');
@@ -474,9 +662,9 @@ export class ExercisePlayer {
     };
     this.track.addEventListener('pointerdown', (ev) => { ev.stopPropagation(); seek(ev); this.track.setPointerCapture(ev.pointerId); });
     this.track.addEventListener('pointermove', (ev) => { if (ev.buttons) seek(ev); });
-    bar.append(play, restart, this.track, speed);
+    bar.append(play, restart, this.track, speed, view);
     this.speed = 1;
-    wrap.append(this.labelEl, this.repEl, hint, bar);
+    wrap.append(this.labelEl, this.repEl, bar, this.legendEl);
     container.appendChild(wrap);
     this.playing = true;
     this.labelEl.textContent = 'Načítám postavu…';
@@ -485,6 +673,7 @@ export class ExercisePlayer {
     return this._ensureFigure().then(() => {
       if (token !== this._token || this.container !== container) return;
       this.load(id);
+      this.viewBtn.hidden = !this.hasMuscles;
       this._last = performance.now();
       this._raf = requestAnimationFrame(this._tick);
     });
@@ -526,6 +715,15 @@ export class ExercisePlayer {
     this.camera.updateProjectionMatrix();
   }
 
+  _showArrows() {
+    if (!this.segArrows) return;
+    // šipka se ukazuje během pohybu a doznívá ve výdrži, která po něm následuje
+    let si = this.segIndex;
+    const seg = this.segments[si];
+    if (seg.from === seg.to) si = seg.from === 0 ? -1 : si - 1;     // ve výchozí poloze bez šipky
+    this.segArrows.forEach((g, i) => { if (g) g.visible = i === si; });
+  }
+
   _tick(now) {
     if (!this.container || !this.container.isConnected) { this._raf = null; this.container = null; return; }
     const dt = Math.min(0.05, (now - this._last) / 1000);
@@ -537,9 +735,10 @@ export class ExercisePlayer {
     }
     this._updateBar();
     const label = this._applyAt(this.time);
+    if (this.hasMuscles) this._updateMuscles(this.segIndex);
+    this._showArrows();
     if (this.labelEl && this.labelEl.textContent !== (label || '')) this.labelEl.textContent = label || '';
     if (this.canvas.parentElement && Math.abs(this.canvas.parentElement.clientWidth - this.canvas.width / this.renderer.getPixelRatio()) > 2) this._resize();
-    this.controls.update();
     this.renderer.render(this.scene, this.camera);
     this._raf = requestAnimationFrame(this._tick);
   }

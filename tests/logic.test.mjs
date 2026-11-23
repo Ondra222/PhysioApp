@@ -184,3 +184,31 @@ test('odpověď AI: neznámé cviky se zahodí, prompt obsahuje jen povolené cv
   assert.equal(merged.source, 'ai');
   assert.throws(() => mergeAiPlan(base, { A: [{ id: 'neexistuje' }] }, allowed));
 });
+
+test('svaly: každý cvik má zapojení svalů a klíče existují na postavě', async () => {
+  const { EXERCISE_MUSCLES, MUSCLE_KEYS, musclesFor } = await import('../js/exercise-muscles.js');
+  const { readFileSync } = await import('node:fs');
+  const buf = readFileSync(new URL('../models/avatar.glb', import.meta.url));
+  const json = JSON.parse(buf.subarray(20, 20 + buf.readUInt32LE(12)).toString());
+  const onModel = new Set(json.asset.extras.muscles.map((m) => m.key));
+  assert.deepEqual([...new Set(MUSCLE_KEYS)].sort(), [...onModel].sort());
+  for (const ex of EXERCISES) {
+    const m = EXERCISE_MUSCLES[ex.id];
+    assert.ok(m, `chybí svaly pro ${ex.id}`);
+    const all = [m, ...Object.values(m.phase || {})];
+    let any = (m.deep || []).length;
+    for (const part of all) {
+      for (const k of ['work', 'stretch', 'relax']) {
+        for (const it of part[k] || []) {
+          const [key, side] = it.split('.');
+          assert.ok(onModel.has(key), `${ex.id}: neznámý sval ${key}`);
+          assert.ok(!side || side === 'l' || side === 'r', `${ex.id}: strana ${side}`);
+          any++;
+        }
+      }
+    }
+    assert.ok(any > 0, `${ex.id}: žádný sval`);
+  }
+  assert.deepEqual(musclesFor('bird-dog', 1).work.includes('gluteMax.r'), true);
+  assert.deepEqual(musclesFor('bird-dog', null).work, EXERCISE_MUSCLES['bird-dog'].work);
+});

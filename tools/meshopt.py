@@ -11,6 +11,11 @@ _lib.meshopt_simplify.restype = ctypes.c_size_t
 _lib.meshopt_simplify.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p, ctypes.c_size_t,
                                   ctypes.c_size_t, ctypes.c_size_t, ctypes.c_float, ctypes.c_uint,
                                   ctypes.POINTER(ctypes.c_float)]
+_lib.meshopt_simplifyWithAttributes.restype = ctypes.c_size_t
+_lib.meshopt_simplifyWithAttributes.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p, ctypes.c_size_t,
+                                                ctypes.c_size_t, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p, ctypes.c_size_t,
+                                                ctypes.c_void_p, ctypes.c_size_t, ctypes.c_float, ctypes.c_uint,
+                                                ctypes.POINTER(ctypes.c_float)]
 _lib.meshopt_optimizeVertexCache.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_size_t]
 _lib.meshopt_optimizeVertexFetchRemap.restype = ctypes.c_size_t
 _lib.meshopt_optimizeVertexFetchRemap.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_size_t]
@@ -19,15 +24,25 @@ ERROR_ABSOLUTE = 1 << 2
 PRUNE = 1 << 3
 
 
-def simplify(verts, faces, max_error, target_ratio=0.0):
-    """Zjednoduší síť; max_error je absolutní odchylka v jednotkách sítě (zde mm)."""
+def simplify(verts, faces, max_error, target_ratio=0.0, attrs=None, weights=None):
+    """Zjednoduší síť; max_error je absolutní odchylka v jednotkách sítě (zde mm).
+
+    attrs (N×k) a weights (k) – volitelné atributy vrcholů, jejichž změny má zjednodušení zachovat
+    (např. hranice svalů)."""
     pos = np.ascontiguousarray(verts, dtype=np.float32)
     idx = np.ascontiguousarray(faces.ravel(), dtype=np.uint32)
     target = int(len(idx) * target_ratio) // 3 * 3
     dst = np.empty_like(idx)
     err = ctypes.c_float()
-    n = _lib.meshopt_simplify(dst.ctypes.data, idx.ctypes.data, len(idx), pos.ctypes.data, len(pos), 12,
-                              target, max_error, ERROR_ABSOLUTE | PRUNE, ctypes.byref(err))
+    if attrs is None:
+        n = _lib.meshopt_simplify(dst.ctypes.data, idx.ctypes.data, len(idx), pos.ctypes.data, len(pos), 12,
+                                  target, max_error, ERROR_ABSOLUTE | PRUNE, ctypes.byref(err))
+    else:
+        at = np.ascontiguousarray(attrs, dtype=np.float32).reshape(len(pos), -1)
+        w = np.ascontiguousarray(weights, dtype=np.float32)
+        n = _lib.meshopt_simplifyWithAttributes(dst.ctypes.data, idx.ctypes.data, len(idx), pos.ctypes.data, len(pos), 12,
+                                                at.ctypes.data, at.shape[1] * 4, w.ctypes.data, at.shape[1], None,
+                                                target, max_error, ERROR_ABSOLUTE | PRUNE, ctypes.byref(err))
     dst = np.ascontiguousarray(dst[:n])
     if n == 0:
         return np.zeros((0, 3)), np.zeros((0, 3), dtype=np.int64)

@@ -171,11 +171,19 @@ details.flags ul { margin: 8px 0 0; padding-left: 18px; line-height: 1.5; }
 .exercise .caution { margin: 0 14px 12px; font-size: 13px; color: #8a4b00; background: #fff6e5; padding: 8px 10px; border-radius: 8px; }
 .play-ico { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 9px; margin-right: 8px; vertical-align: 2px; }
 .anim-slot { margin: 0 12px 10px; }
-.anim-wrap { position: relative; border-radius: 10px; overflow: hidden; background: #f1f5f7; touch-action: none; }
+.anim-wrap { position: relative; border-radius: 10px; overflow: hidden; background: #f1f5f7; }
 .anim-canvas { display: block; width: 100%; }
 .anim-label { position: absolute; left: 10px; top: 8px; font-size: 13px; font-weight: 600; color: var(--text); background: rgba(255,255,255,.85); border-radius: 999px; padding: 3px 10px; pointer-events: none; }
 .anim-label:empty { display: none; }
-.anim-hint { position: absolute; right: 10px; top: 10px; font-size: 11px; color: var(--muted); pointer-events: none; }
+.anim-legend { padding: 7px 10px 8px; background: #fff; border-top: 1px solid var(--line); font-size: 12px; line-height: 1.45; color: var(--text); }
+.anim-leg { margin: 1px 0; }
+.anim-leg i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; background: #999; }
+.anim-leg b { font-weight: 600; }
+.anim-leg-work i { background: #d1281a; }
+.anim-leg-stretch i { background: #2f73d6; }
+.anim-leg-relax i { background: #2f9a58; }
+.anim-leg-nerve i { background: #e0b100; }
+.anim-view { padding: 0 8px; }
 .anim-reps { position: absolute; left: 10px; top: 38px; font-size: 12px; color: var(--accent); font-weight: 600; pointer-events: none; }
 .anim-reps:empty { display: none; }
 .anim-bar { display: flex; align-items: center; gap: 6px; padding: 6px 8px; background: #fff; border-top: 1px solid var(--line); }
