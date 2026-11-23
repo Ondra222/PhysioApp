@@ -4,6 +4,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { Mannequin, emptyPose, mergePose, lerpPose } from './mannequin.js';
 import { Figure, loadFigureData } from './figure.js';
+import { Avatar, loadAvatar } from './avatar.js';
 import { ANIMS, BASES } from './exercise-anims.js';
 
 export function hasAnimation(id) {
@@ -491,10 +492,15 @@ export class ExercisePlayer {
 
   _ensureFigure() {
     if (!this._figureReady) {
-      this._figureReady = loadFigureData().then((data) => new Figure(data)).catch((err) => {
-        console.warn('Realistickou postavu se nepodařilo načíst, použije se figurína.', err);
-        return new Mannequin();
-      }).then((man) => {
+      this._figureReady = loadAvatar().then((gltf) => new Avatar(gltf))
+        .catch((err) => {
+          console.warn('Postavu pro animace se nepodařilo načíst, zkusím anatomickou.', err);
+          return loadFigureData().then((data) => new Figure(data));
+        })
+        .catch((err) => {
+          console.warn('Realistickou postavu se nepodařilo načíst, použije se figurína.', err);
+          return new Mannequin();
+        }).then((man) => {
         this.man = man;
         this.scene.add(man.root);
       });
