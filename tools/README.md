@@ -20,7 +20,8 @@ python3 select_parts.py        # rozdělení částí do vrstev  -> .work/select
 python3 names_cs.py            # české a latinské názvy      -> ../models/parts.json
 python3 build_glb.py           # zjednodušení + GLB po vrstvách -> ../models/*.glb
 python3 build_figure.py        # záložní postava z kůže BodyParts3D -> ../models/figure.glb
-python3 build_avatar.py        # postava pro animace (SDF + marching cubes, kostra, váhy) -> ../models/avatar.glb
+VOX=0.0045 python3 build_avatar.py   # postava pro animace (SDF + marching cubes, kostra, váhy, svaly) -> ../models/avatar.glb
+                                   # svaly = záplaty na povrchu (MUSCLES), hranice zachová zjednodušení s atributy
 python3 landmarks.py && python3 landmarks2.py && python3 landmarks3.py && python3 make_landmarks_js.py   # klouby, prsty, žebra -> ../js/landmarks.js
 ```
 

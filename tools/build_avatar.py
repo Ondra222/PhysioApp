@@ -427,9 +427,165 @@ def eyes():
 
 
 # ---------------------------------------------------------------------------
+# Svaly: povrch rozdělený na jednotlivé povrchové svaly
+# ---------------------------------------------------------------------------
+# Každý sval je „záplata“ v souřadnicích části těla:
+#   trup a krk:  (výška y [m], úhel kolem těla θ [°]; 0 = vpředu, 90 = bok, 180 = vzadu)
+#   končetiny:   (poměrná poloha podél kosti t, úhel kolem kosti θ [°]; 0 = vpředu, +90 = zevně)
+# k = vzdálenost od středu záplaty v jednotkách její poloviční velikosti; k < 1 = uvnitř svalu.
+# φ = směr svalových vláken v rovině záplaty (90° = podél výšky / kosti).
+# 'palm' a 'thumb' u předloktí znamenají úhel dlaně / palcové strany zjištěný z modelu.
+MUSCLES = [
+    # klíč, český název, oblast, (střed, polovina), (θ, polovina θ), φ[, posun θ na jednotku výšky / t]
+    ('pec', 'velký prsní sval', 'torso', (1.25, 0.095), (40, 38), 12),
+    ('rectus#1', 'přímý břišní sval', 'torso', (0.925, 0.085), (17, 13), 90),
+    ('rectus#2', 'přímý břišní sval', 'torso', (1.05, 0.034), (17, 13), 90),
+    ('rectus#3', 'přímý břišní sval', 'torso', (1.125, 0.036), (17, 13), 90),
+    ('oblique', 'zevní šikmý břišní sval', 'torso', (1.02, 0.12), (55, 26), 48),
+    ('serratus', 'pilovitý sval přední', 'torso', (1.17, 0.058), (82, 13), 25),
+    ('trapUp', 'trapézový sval – horní část', 'torso', (1.375, 0.05), (140, 45), -25),
+    ('trapMid', 'trapézový sval – střední a dolní část', 'torso', (1.245, 0.12), (168, 17), 5),
+    ('lat', 'široký sval zádový', 'torso', (1.11, 0.105), (133, 28), 60),
+    ('infra', 'podhřebenový sval', 'torso', (1.272, 0.048), (140, 15), 0),
+    ('erector', 'vzpřimovač páteře', 'torso', (1.0, 0.115), (167, 9), 90),
+    ('gluteMax', 'velký hýžďový sval', 'torso', (0.83, 0.088), (144, 30), -35),
+    ('gluteMed', 'střední hýžďový sval', 'torso', (0.93, 0.05), (105, 30), 90),
+    ('tfl', 'napínač stehenní povázky', 'torso', (0.87, 0.05), (72, 15), 80),
+    ('scm', 'kývač hlavy', 'neck', (1.445, 0.06), (46, 20), 70, 450),
+    ('trapUp', 'trapézový sval – horní část', 'neck', (1.43, 0.06), (152, 34), 80),
+    ('levator', 'zdvihač lopatky', 'neck', (1.42, 0.04), (102, 17), 80),
+    ('deltA', 'deltový sval – přední část', 'arm', (0.07, 0.27), (40, 42), 90),
+    ('deltL', 'deltový sval – střední část', 'arm', (0.07, 0.27), (100, 34), 90),
+    ('deltP', 'deltový sval – zadní část', 'arm', (0.07, 0.27), (160, 42), 90),
+    ('biceps', 'dvojhlavý sval pažní', 'arm', (0.58, 0.34), (0, 52), 90),
+    ('triceps', 'trojhlavý sval pažní', 'arm', (0.52, 0.43), (180, 70), 90),
+    ('brachialis', 'hluboký sval pažní', 'arm', (0.8, 0.15), (72, 24), 90),
+    ('brachiorad', 'vřetenní sval', 'fore', (0.28, 0.32), ('thumb', 30), 90),
+    ('flexors', 'ohýbače zápěstí a prstů', 'fore', (0.42, 0.46), ('palm', 72), 90),
+    ('extensors', 'natahovače zápěstí a prstů', 'fore', (0.42, 0.46), ('back', 66), 90),
+    ('rectFem', 'přímý sval stehenní', 'thigh', (0.46, 0.42), (2, 22), 90),
+    ('vastLat', 'zevní hlava čtyřhlavého svalu', 'thigh', (0.56, 0.4), (68, 34), 90),
+    ('vastMed', 'vnitřní hlava čtyřhlavého svalu', 'thigh', (0.79, 0.2), (-40, 30), 90),
+    ('adductors', 'přitahovače stehna', 'thigh', (0.3, 0.36), (-100, 42), 80),
+    ('sartorius', 'krejčovský sval', 'thigh', (0.45, 0.52), (-25, 13), 90, -165),
+    ('bicFem', 'dvojhlavý sval stehenní', 'thigh', (0.56, 0.4), (140, 34), 90),
+    ('semi', 'pološlašitý a poloblanitý sval', 'thigh', (0.56, 0.4), (-148, 34), 90),
+    ('tibAnt', 'přední sval holenní', 'shin', (0.42, 0.38), (30, 27), 90),
+    ('peroneus', 'svaly lýtkové kosti (peroneální)', 'shin', (0.45, 0.36), (95, 24), 90),
+    ('gastroc', 'dvojhlavý sval lýtkový', 'shin', (0.3, 0.26), (180, 76), 90),
+    ('soleus', 'šikmý sval lýtkový', 'shin', (0.63, 0.2), (180, 88), 90),
+]
+MUSCLE_KEYS = list(dict.fromkeys(m[0] for m in MUSCLES))
+MUSCLE_NAMES = {m[0]: m[1] for m in MUSCLES}
+REGION_OF = {'pelvis': 'torso', 'glute': 'torso', 'belly': 'torso', 'waist': 'torso', 'chest': 'torso', 'back': 'torso',
+             'lat': 'torso', 'trap': 'torso', 'neck': 'neck'}
+for _P in 'lr':
+    REGION_OF.update({f'{_P}deltoid': 'arm', f'{_P}upper': 'arm', f'{_P}fore': 'fore', f'{_P}thigh': 'thigh', f'{_P}knee': 'thigh',
+                      f'{_P}shin': 'shin'})
+REGION_BONE = {'arm': 'UpperArm', 'fore': 'Forearm', 'thigh': 'Thigh', 'shin': 'Shin'}
+REGION_R = {'torso': 0.13, 'neck': 0.06, 'arm': 0.045, 'fore': 0.035, 'thigh': 0.07, 'shin': 0.05}
+NO_MUSCLE = 9.0
+SIZE = float(os.environ.get('MSIZE', 1.15))      # společné zvětšení záplat
+POW = {'torso': 2.6, 'neck': 2.4, 'arm': 2.2, 'fore': 2.2, 'thigh': 2.2, 'shin': 2.2}   # tvar (superelipsa)
+
+
+def vertex_normals(v, f):
+    n = np.zeros_like(v)
+    fn = np.cross(v[f[:, 1]] - v[f[:, 0]], v[f[:, 2]] - v[f[:, 0]])
+    for i in range(3):
+        np.add.at(n, f[:, i], fn)
+    return n / np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-12)
+
+
+def muscle_fields(v, labels, bones):
+    """Pro každý vrchol 4 nejbližší svaly (id, k) a souřadnici napříč vlákny (pro jemné pruhování)."""
+    idx = {b['name']: i for i, b in enumerate(bones)}
+    n = len(v)
+    K = np.full((n, len(MUSCLES)), NO_MUSCLE)
+    U = np.zeros((n, len(MUSCLES)))
+    side = np.where(v[:, 0] >= 0, 0, 1)                  # 0 = levá (+x), 1 = pravá
+    reg = np.array([REGION_OF.get(l, '') for l in labels])
+    coords = {}
+    # trup a krk
+    m = np.isin(reg, ['torso', 'neck'])
+    th = np.degrees(np.arctan2(np.abs(v[:, 0]), v[:, 2] + 0.015))
+    coords['torso'] = coords['neck'] = (v[:, 1], th, None)
+    # končetiny
+    for r, bn in REGION_BONE.items():
+        t = np.zeros(n)
+        th = np.zeros(n)
+        ext = {}
+        for s, P in ((1, 'l'), (-1, 'r')):
+            b = bones[idx[P + bn]]
+            a = b['tail'] - b['head']
+            ln = np.linalg.norm(a)
+            a /= ln
+            fr = np.array([0, 0, 1.0]) - a[2] * a
+            fr /= np.linalg.norm(fr)
+            la = np.cross(a, fr) * (1 if np.cross(a, fr)[0] * s > 0 else -1)   # zevní strana
+            d = v - b['head']
+            sel = side == (0 if s > 0 else 1)
+            t[sel] = (d[sel] @ a) / ln
+            th[sel] = np.degrees(np.arctan2(d[sel] @ la, d[sel] @ fr))
+            if r == 'fore':
+                M = (lambda p: np.asarray(p, float)) if s > 0 else mirror
+                pn = np.cross(M(KNUCK) - M(W), M(FING[1]['base']) - M(FING[4]['base'])) * s
+                tb = M(FING[0]['base']) - M(W)
+                ext[P] = {'palm': np.degrees(np.arctan2(pn @ la, pn @ fr)), 'thumb': np.degrees(np.arctan2(tb @ la, tb @ fr))}
+                ext[P]['back'] = ext[P]['palm'] + 180
+            ext.setdefault(P, {})['len'] = ln
+        coords[r] = (t, th, ext)
+    for j, mdef in enumerate(MUSCLES):
+        key, _, r, (c, h), (tc, thh), phi = mdef[:6]
+        shear = mdef[6] if len(mdef) > 6 else 0.0
+        h, thh = h * SIZE, thh * SIZE
+        y, th, ext = coords[r]
+        sel = reg == r
+        for P, sv in (('l', 0), ('r', 1)):
+            ss = sel & (side == sv)
+            if not ss.any():
+                continue
+            c_th = tc if not isinstance(tc, str) else ext[P][tc]
+            dth = (th[ss] - c_th - shear * (y[ss] - c) + 180) % 360 - 180
+            pw = POW[r]
+            K[ss, j] = (np.abs((y[ss] - c) / h) ** pw + np.abs(dth / thh) ** pw) ** (1 / pw)
+            R = REGION_R[r]
+            sarc = np.radians(dth) * R
+            yy = y[ss] * (ext[P]['len'] if ext else 1.0)
+            ph = np.radians(phi)
+            U[ss, j] = -sarc * np.sin(ph) + yy * np.cos(ph)
+    # sloučit záplaty se stejným klíčem (trapéz na trupu i krku)
+    nk = len(MUSCLE_KEYS)
+    KK = np.full((n, nk), NO_MUSCLE)
+    UU = np.zeros((n, nk))
+    for j, m_ in enumerate(MUSCLES):
+        q = MUSCLE_KEYS.index(m_[0])
+        b = K[:, j] < KK[:, q]
+        KK[b, q] = K[b, j]
+        UU[b, q] = U[b, j]
+    order = np.argsort(KK, axis=1)[:, :4]
+    ks = np.take_along_axis(KK, order, 1)
+    ids = order * 2 + side[:, None]               # id = 2·index svalu + strana
+    ids = np.where(ks >= NO_MUSCLE, -1, ids)
+    fib = np.take_along_axis(UU, order[:, :1], 1)[:, 0]
+    return ids.astype(np.float32), ks.astype(np.float32), fib.astype(np.float32)
+
+
+def muscle_relief(v, f, ks):
+    """Mírné vyklenutí bříšek svalů a mělké rýhy mezi nimi (posun po normále)."""
+    nrm = vertex_normals(v, f)
+    k1, k2 = ks[:, 0], ks[:, 1]
+    inside = k1 < 1
+    belly = np.where(inside, (1 - np.clip(k1, 0, 1) ** 2), 0)
+    sep = np.minimum(k2 - k1, 1 - k1)
+    groove = np.where(k1 < NO_MUSCLE, np.clip(1 - sep / 0.22, 0, 1) ** 2, 0)
+    return v + nrm * (0.0024 * belly - 0.0016 * groove)[:, None]
+
+
+# ---------------------------------------------------------------------------
 # Zápis glTF (kostra + váhy + barvy + morph dýchání)
 # ---------------------------------------------------------------------------
-def write_glb(path, v, f, col, joints, weights, bones, morph, markers, cloth):
+def write_glb(path, v, f, col, joints, weights, bones, morph, markers, cloth, mus):
     buf = bytearray()
     views, acc = [], []
 
@@ -464,6 +620,10 @@ def write_glb(path, v, f, col, joints, weights, bones, morph, markers, cloth):
     wgt = accessor(weights.astype(np.float32), 5126, 'VEC4', 34962)
     mph = accessor(morph.astype(np.float32), 5126, 'VEC3', 34962, True)
     clo = accessor(cloth.astype(np.float32), 5126, 'VEC4', 34962)
+    mid = accessor((mus[0] + 1).astype(np.uint8), 5121, 'VEC4', 34962)              # 0 = žádný sval, jinak id + 1
+    mk_ = accessor(np.round(np.clip(mus[1] / NO_MUSCLE, 0, 1) * 65535).astype(np.uint16), 5123, 'VEC4', 34962,
+                   normalized=True)                                                 # k / 9
+    mfb = accessor(mus[2].reshape(-1, 1), 5126, 'SCALAR', 34962)
     ind = accessor(f.astype(np.uint32).ravel(), 5125, 'SCALAR', 34963)
     # uzly kostí
     nodes = [{'name': 'avatar', 'mesh': 0, 'skin': 0}]
@@ -479,12 +639,12 @@ def write_glb(path, v, f, col, joints, weights, bones, morph, markers, cloth):
     ibm_acc = accessor(ibm.reshape(len(bones), 16), 5126, 'MAT4')
     doc = {
         'asset': {'version': '2.0', 'generator': 'physioapp build_avatar.py',
-                  'extras': {'markers': markers, 'aPose': A_POSE, 'legAbd': LEG_ABD,
+                  'extras': {'markers': markers, 'muscles': [{'key': k.split('#')[0], 'name': MUSCLE_NAMES[k]} for k in MUSCLE_KEYS], 'aPose': A_POSE, 'legAbd': LEG_ABD,
                              'bones': [{'name': b['name'], 'parent': b['parent'], 'head': np.round(b['head'], 5).tolist(),
                                         'tail': np.round(b['tail'], 5).tolist()} for b in bones]}},
         'scene': 0, 'scenes': [{'nodes': [0, 1]}],
         'nodes': nodes,
-        'meshes': [{'name': 'avatar', 'primitives': [{'attributes': {'POSITION': pos, 'COLOR_0': colr, 'JOINTS_0': jnt, 'WEIGHTS_0': wgt, '_CLOTH': clo},
+        'meshes': [{'name': 'avatar', 'primitives': [{'attributes': {'POSITION': pos, 'COLOR_0': colr, 'JOINTS_0': jnt, 'WEIGHTS_0': wgt, '_CLOTH': clo, '_MUSID': mid, '_MUSK': mk_, '_FIBER': mfb},
                                                        'indices': ind, 'targets': [{'POSITION': mph}]}], 'weights': [0]}],
         'skins': [{'joints': list(range(1, 1 + len(bones))), 'inverseBindMatrices': ibm_acc, 'skeleton': 1}],
         'accessors': acc, 'bufferViews': views, 'buffers': [{'byteLength': len(buf)}],
@@ -499,6 +659,18 @@ def write_glb(path, v, f, col, joints, weights, bones, morph, markers, cloth):
         fh.write(struct.pack('<II', len(buf), 0x004E4942) + buf)
 
 
+def body_labels(v):
+    """Štítek části těla = nejbližší tvar."""
+    d = np.full(len(v), np.inf)
+    labels = np.empty(len(v), dtype=object)
+    for pr in PRIMS:
+        dd = pr.eval(v)
+        m = dd < d
+        d[m] = dd[m]
+        labels[m] = pr.label
+    return labels
+
+
 def main():
     build_body()
     print(len(PRIMS), 'tvarů, voxel', VOX)
@@ -508,17 +680,17 @@ def main():
     v = v + lo
     # marching cubes ze skimage vrací trojúhelníky s normálou ven (pro záporné hodnoty uvnitř)
     print('marching cubes', len(v), 'vrcholů', len(f), 'trojúhelníků')
-    v, f = simplify(v, f.astype(np.int64), float(os.environ.get('ERR', 0.0006)))
-    print('zjednodušeno', len(v), 'vrcholů', len(f), 'trojúhelníků')
-    # štítek části těla = nejbližší tvar
-    d = np.full(len(v), np.inf)
-    labels = np.empty(len(v), dtype=object)
-    for pr in PRIMS:
-        dd = pr.eval(v)
-        m = dd < d
-        d[m] = dd[m]
-        labels[m] = pr.label
     bones = skeleton()
+    # hranice svalů jako atribut, aby zjednodušení zachovalo husté vrcholy podél rýh mezi svaly
+    labels = body_labels(v)
+    _, mks, _ = muscle_fields(v, labels, bones)
+    sep = np.clip(np.minimum(mks[:, 1] - mks[:, 0], 1 - mks[:, 0]), -0.3, 0.45)
+    v, f = simplify(v, f.astype(np.int64), float(os.environ.get('ERR', 0.0006)), attrs=sep[:, None],
+                    weights=[float(os.environ.get('AW', 1.5))])
+    print('zjednodušeno', len(v), 'vrcholů', len(f), 'trojúhelníků')
+    labels = body_labels(v)
+    mids, mks, fib = muscle_fields(v, labels, bones)
+    v = muscle_relief(v, f, mks)
     joints, weights = compute_weights(v, labels, bones, f)
     col = colors_for(v, labels, bones)
     cloth = cloth_fields(v, labels, bones)
@@ -539,6 +711,9 @@ def main():
     v = np.vstack([v, ev])
     labels = np.concatenate([labels, np.array(['eye'] * len(ev), dtype=object)])
     cloth = np.vstack([cloth, np.full((len(ev), 4), -0.05, np.float32)])
+    mids = np.vstack([mids, np.full((len(ev), 4), -1, np.float32)])
+    mks = np.vstack([mks, np.full((len(ev), 4), NO_MUSCLE, np.float32)])
+    fib = np.concatenate([fib, np.zeros(len(ev), np.float32)])
     # dýchání: přední stěna břicha a hrudníku dopředu
     morph = np.zeros_like(v)
     for k, (x, y, z) in enumerate(v):
@@ -569,7 +744,7 @@ def main():
             f'{P}Toe': [f'{P}Foot', [M(TOE)[0], 0.0, TOE[2] + 0.01]],
         })
     mk = {k: [b, [round(float(x), 5) for x in p]] for k, (b, p) in mk.items()}
-    write_glb(OUT, v, f, col, joints, weights, bones, morph, mk, cloth)
+    write_glb(OUT, v, f, col, joints, weights, bones, morph, mk, cloth, (mids, mks, fib))
     print('zapsáno', OUT, f'{os.path.getsize(OUT) / 1e6:.2f} MB', len(f), 'trojúhelníků')
 
 
